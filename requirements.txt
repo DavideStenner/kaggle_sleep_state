@@ -1,0 +1,7 @@
+numpy
+pandas
+matplotlib
+lightgbm
+tqdm
+plotly
+kaggle

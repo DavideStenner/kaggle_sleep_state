@@ -1,0 +1,8 @@
+{
+    "DATA_FOLDER": "data",
+    "ORIGINAL_FOLDER": "original_data",
+    "ORIGINAL_DATA_PATH": "child-mind-institute-detect-sleep-states",
+    "MAPPING_PATH": "mapping",
+    "PREPROCESS_FOLDER": "preprocess",
+    "DASHBOARD_FOLDER": "pbi"
+}

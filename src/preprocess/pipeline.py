@@ -224,7 +224,7 @@ def add_shift(train: pl.LazyFrame) -> pl.LazyFrame:
     
     return train
 
-def train_pipeline(filter_intersection_id: bool=True, dev: bool=False) -> pl.LazyFrame:
+def train_pipeline(filter_intersection_id: bool=True, dev: bool=False, dash_data: bool=False) -> None:
     
     #import dataset
     config=import_config_dict()
@@ -243,4 +243,25 @@ def train_pipeline(filter_intersection_id: bool=True, dev: bool=False) -> pl.Laz
     train = add_target(train_series=train_series, train_events=train_events)
     
     train = add_shift(train)
-    return train
+    
+    print('Starting to collect data')
+    train_series = train_series.collect()
+
+    print('Saving parquet')
+    train_series.write_parquet(
+        os.path.join(
+            config['DATA_FOLDER'],
+            config['PREPROCESS_FOLDER'],
+            'train_series.parquet'
+        )
+    )
+    if dash_data:
+        print('Saving csv for dashboard')
+        train_series.write_csv(
+        os.path.join(
+                config['DATA_FOLDER'],
+                config['PREPROCESS_FOLDER'],
+                config['DASHBOARD_FOLDER'],
+                'train_series.csv'
+            )  
+        )

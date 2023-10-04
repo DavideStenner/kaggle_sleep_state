@@ -42,20 +42,21 @@ def correct_train_events(train_events: pl.LazyFrame) -> pl.LazyFrame:
         (pl.col('number_null')!=2)
     ).select(['series_id', 'night']).unique().collect().to_dicts()
     
-    number_rows_to_correct = train_events.filter(
-        (pl.struct(['series_id', 'night']).is_in(set_null_on_this_series_event)) &
-        (pl.col('step').is_not_null())
-    ).select(pl.count()).collect().item()
-    print(f'Correcting {number_rows_to_correct} train events rows')
+    if len(set_null_on_this_series_event) > 0:
+        number_rows_to_correct = train_events.filter(
+            (pl.struct(['series_id', 'night']).is_in(set_null_on_this_series_event)) &
+            (pl.col('step').is_not_null())
+        ).select(pl.count()).collect().item()
+        print(f'Correcting {number_rows_to_correct} train events rows')
 
-    train_events = train_events.with_columns(
-        (
-            pl.when(
-                pl.struct(["series_id", "night"]).is_in(set_null_on_this_series_event)
-            ).then(None).otherwise(pl.col(col)).alias(col)
-            for col in ['step', 'timestamp']
+        train_events = train_events.with_columns(
+            (
+                pl.when(
+                    pl.struct(["series_id", "night"]).is_in(set_null_on_this_series_event)
+                ).then(None).otherwise(pl.col(col)).alias(col)
+                for col in ['step', 'timestamp']
+            )
         )
-    )
     return train_events
 
 def import_dataset(config: dict, dev: bool) -> Tuple[pl.LazyFrame]:

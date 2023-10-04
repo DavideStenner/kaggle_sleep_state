@@ -18,9 +18,13 @@ def downcast_timestamp(
             '-0500': 1
         }
     ) -> Tuple[pl.LazyFrame]:
-
-    transform_list = [
+    #keep local time zone
+    train_series = train_series.with_columns(
+        pl.col('timestamp').str.replace(r".{5}$", "").alias('timestamp'),
         pl.col('timestamp').str.slice(-5).map_dict(mapped_tz).alias('tz'),
+    )
+    #get feature
+    transform_list = [
         (pl.col('timestamp').str.to_datetime().dt.year()-2000).cast(pl.UInt8).alias('year'), 
         pl.col('timestamp').str.to_datetime().dt.month().cast(pl.UInt8).alias('month'),
         pl.col('timestamp').str.to_datetime().dt.day().cast(pl.UInt8).alias('day'), 

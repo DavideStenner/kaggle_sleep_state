@@ -242,23 +242,22 @@ def train_pipeline(filter_intersection_id: bool=True, dev: bool=False, dash_data
     train = add_shift(train)
     
     print('Starting to collect data')
-    train_series = train_series.collect()
+    train = train.collect()
 
     print('Saving parquet')
-    train_series.write_parquet(
+    train.write_parquet(
         os.path.join(
             config['DATA_FOLDER'],
             config['PREPROCESS_FOLDER'],
-            'train_series.parquet'
+            'train.parquet'
         )
     )
     if dash_data:
         print('Saving csv for dashboard')
-        train_series.write_csv(
-        os.path.join(
+        train.write_csv(
+            os.path.join(
                 config['DATA_FOLDER'],
-                config['PREPROCESS_FOLDER'],
                 config['DASHBOARD_FOLDER'],
-                'train_series.csv'
+                'train.csv'
             )  
         )

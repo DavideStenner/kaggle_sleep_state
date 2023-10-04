@@ -140,9 +140,7 @@ def downcast_all(
         config=config, 
         train_series=train_series, train_events=train_events,
     )    
-    train_series = train_series.with_columns(
-        pl.col('timestamp').str.to_datetime()
-    )
+    train_series = downcast_timestamp(train_series=train_series)
 
     print('Running check on train_events')
     assert train_events.group_by(['series_id', 'night']).agg(
@@ -169,8 +167,6 @@ def downcast_all(
         ['series_id', 'event', 'step']
     )
 
-    # train_series = downcast_timestamp(train_series=train_series)
-    
     return train_series, train_events
 
 def add_target(train_series: pl.LazyFrame, train_events: pl.LazyFrame) -> pl.LazyFrame:

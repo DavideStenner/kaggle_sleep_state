@@ -18,6 +18,10 @@ def downcast_timestamp(
             '-0500': 1
         }
     ) -> Tuple[pl.LazyFrame]:
+    #https://www.kaggle.com/code/rimbax/lightgbm-feature-implementation-from-paper/notebook#Feature-Engineering
+    signal_awake = dict(zip(range(1440), np.sin(np.linspace(0, np.pi, 1440) + 0.208 * np.pi) ** 24))
+    signal_onset = dict(zip(range(1440), np.sin(np.linspace(0, np.pi, 1440) + 0.555 * np.pi) ** 24))
+
     #keep local time zone
     train_series = train_series.with_columns(
         pl.col('timestamp').str.replace(r".{5}$", "").alias('timestamp'),
@@ -29,10 +33,17 @@ def downcast_timestamp(
         pl.col('timestamp').str.to_datetime().dt.month().cast(pl.UInt8).alias('month'),
         pl.col('timestamp').str.to_datetime().dt.day().cast(pl.UInt8).alias('day'), 
         pl.col('timestamp').str.to_datetime().dt.hour().cast(pl.UInt8).alias('hour'),
-        pl.col('timestamp').str.to_datetime().dt.second().cast(pl.UInt8).alias('second')
+        pl.col('timestamp').str.to_datetime().dt.minute().cast(pl.UInt8).alias('minute')
     ]
-    
-    train_series = train_series.with_columns(transform_list).drop('timestamp')
+    transform_signal = [
+        (pl.col('hour')*60 + pl.col('minute')).cast(pl.Int16).map_dict(signal_awake).cast(pl.Float32).alias('signal_awake'),
+        (pl.col('hour')*60 + pl.col('minute')).cast(pl.Int16).map_dict(signal_onset).cast(pl.Float32).alias('signal_onset')
+    ]
+    train_series = train_series.with_columns(
+        transform_list
+    ).drop('timestamp').with_columns(
+        transform_signal
+    )
     
     return train_series
 

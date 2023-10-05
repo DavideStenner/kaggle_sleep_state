@@ -236,6 +236,32 @@ def add_shift(train: pl.LazyFrame) -> pl.LazyFrame:
     
     return train
 
+def add_lift(train: pl.LazyFrame) -> pl.LazyFrame:
+    # https://www.nature.com/articles/s41598-020-79217-x.pdf
+    train = train.with_columns(
+        pl.col('step').cast(pl.Int32),
+        (
+            pl.max_horizontal(
+                pl.col('enmo') -0.2, pl.lit(0)
+            ).rolling_sum(
+                window_size='120i', center=False,
+                closed='left', min_periods=120
+            ).over('series_id').alias('activity_count').cast(pl.Float32)
+        )
+    ).with_columns(
+        (100/(1+pl.col('activity_count'))).rolling_mean(
+            window_size='360i', center=False,
+            closed='left', min_periods=360
+        ).over('series_id').alias('lids').cast(pl.Float32)
+    )
+    return train
+
+def add_feature(train: pl.LazyFrame) -> pl.LazyFrame:
+    train = add_shift(train)
+    
+    train = add_lift(train)
+    return train
+
 def train_pipeline(filter_intersection_id: bool=True, dev: bool=False, dash_data: bool=False) -> None:
     
     #import dataset

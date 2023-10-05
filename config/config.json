@@ -4,5 +4,14 @@
     "ORIGINAL_DATA_PATH": "child-mind-institute-detect-sleep-states",
     "MAPPING_PATH": "mapping",
     "PREPROCESS_FOLDER": "preprocess",
-    "DASHBOARD_FOLDER": "pbi"
+    "DASHBOARD_FOLDER": "pbi",
+    "SAVE_RESULTS_PATH": "results",
+    "MODEL_PATH": "model",
+    "N_FOLD": 5,
+    "TARGET_COL": "event",
+    "LOG_EVALUATION": "log",
+    "FEATURE_LIST": [
+        "anglez", "enmo", "tz", "year", "month", "day", "hour", "minute", "signal_awake", "signal_onset",
+        "diff_anglez", "diff_enmo", "activity_count", "lids"
+    ]
 }

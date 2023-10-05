@@ -262,19 +262,41 @@ def add_feature(train: pl.LazyFrame) -> pl.LazyFrame:
     train = add_lift(train)
     return train
 
-def train_pipeline(filter_intersection_id: bool=True, dev: bool=False, dash_data: bool=False) -> None:
+def add_cv_folder(train: pl.LazyFrame) -> pl.LazyFrame:
+    series_id_fold = train.group_by(
+        ['series_id']
+    ).agg(pl.count().alias('count')).sort(['series_id']).collect()
+
+    shape_ = series_id_fold['count'].sum()
+    
+    series_id_fold = series_id_fold.sample(fraction=1., shuffle=True).select(
+        pl.col('series_id'),
+        ((pl.cumsum("count")/shape_)).alias('pct_rate')
+    ).with_columns(
+        pl.when(
+            pl.col('pct_rate')<.2
+        ).then(0).when(
+            pl.col('pct_rate')<.4
+        ).then(1).when(
+            pl.col('pct_rate')<.6
+        ).then(2).when(
+            pl.col('pct_rate')<.8
+        ).then(3).otherwise(4).alias('fold')
+    ).select(['series_id', 'fold'])
+    
+    train = train.join(
+        series_id_fold.lazy(),
+        on='series_id', how='left'
+    )
+    return train
+
+def train_pipeline(filter_target_na: bool=True, dev: bool=False, dash_data: bool=False) -> None:
     
     #import dataset
     config=import_config_dict()
     
     train_series, train_events = import_dataset(config=config, dev=dev)
     
-    if filter_intersection_id:
-        #filter from intersection id
-        train_series, train_events = filter_train_set(
-            train_series=train_series, train_events=train_events,
-        )
-
     train_series, train_events = downcast_all(
         config=config, train_series=train_series, train_events=train_events,
     )
@@ -293,6 +315,11 @@ def train_pipeline(filter_intersection_id: bool=True, dev: bool=False, dash_data
     
     train = add_feature(train)
     
+    if filter_target_na:
+        train = filter_train(train)
+
+    train = add_cv_folder(train)
+
     print('Starting to collect data')
     train = train.collect()
 
@@ -304,4 +331,3 @@ def train_pipeline(filter_intersection_id: bool=True, dev: bool=False, dash_data
             'train.parquet'
         )
     )
-    return train

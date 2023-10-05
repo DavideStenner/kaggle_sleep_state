@@ -279,8 +279,19 @@ def train_pipeline(filter_intersection_id: bool=True, dev: bool=False, dash_data
         config=config, train_series=train_series, train_events=train_events,
     )
     train = add_target(train_series=train_series, train_events=train_events)
+        
+    if dash_data:
+        print('Saving csv for dashboard')
+        train.collect().write_csv(
+            os.path.join(
+                config['DATA_FOLDER'],
+                config['DASHBOARD_FOLDER'],
+                'train.csv'
+            )  
+        )
+        _ = gc.collect()
     
-    train = add_shift(train)
+    train = add_feature(train)
     
     print('Starting to collect data')
     train = train.collect()
@@ -293,12 +304,4 @@ def train_pipeline(filter_intersection_id: bool=True, dev: bool=False, dash_data
             'train.parquet'
         )
     )
-    if dash_data:
-        print('Saving csv for dashboard')
-        train.write_csv(
-            os.path.join(
-                config['DATA_FOLDER'],
-                config['DASHBOARD_FOLDER'],
-                'train.csv'
-            )  
-        )
+    return train

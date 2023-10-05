@@ -262,6 +262,15 @@ def add_feature(train: pl.LazyFrame) -> pl.LazyFrame:
     return train
 
 def add_cv_folder(train: pl.LazyFrame) -> pl.LazyFrame:
+    """
+    Standard Cross Validation on series id
+
+    Args:
+        train (pl.LazyFrame): 
+
+    Returns:
+        pl.LazyFrame: 
+    """
     series_id_fold = train.group_by(
         ['series_id']
     ).agg(pl.count().alias('count')).sort(['series_id']).collect()
@@ -280,7 +289,7 @@ def add_cv_folder(train: pl.LazyFrame) -> pl.LazyFrame:
             pl.col('pct_rate')<.6
         ).then(2).when(
             pl.col('pct_rate')<.8
-        ).then(3).otherwise(4).alias('fold')
+        ).then(3).otherwise(4).alias('fold').cast(pl.UInt8)
     ).select(['series_id', 'fold'])
     
     train = train.join(
@@ -289,7 +298,7 @@ def add_cv_folder(train: pl.LazyFrame) -> pl.LazyFrame:
     )
     return train
 
-def train_pipeline(filter_target_na: bool=True, dev: bool=False, dash_data: bool=False) -> None:
+def train_pipeline(filter_data: bool=True, dev: bool=False, dash_data: bool=False) -> None:
     
     #import dataset
     config=import_config_dict()
@@ -314,7 +323,7 @@ def train_pipeline(filter_target_na: bool=True, dev: bool=False, dash_data: bool
     
     train = add_feature(train)
     
-    if filter_target_na:
+    if filter_data:
         train = filter_train(train)
 
     train = add_cv_folder(train)

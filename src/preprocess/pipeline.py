@@ -139,13 +139,12 @@ def downcast_series(
     
     return train_series, train_events
 
-def filter_train_set(
-        train_series: pl.LazyFrame, train_events: pl.LazyFrame, 
+def filter_train(
+        train: pl.LazyFrame
     ) -> pl.LazyFrame:
-    # print('Filtering intersection series_id from train')
-    
-    #ADD FILTER LOGIC
-    return train_series, train_events
+    #filter missing values on event
+    train = train.filter(pl.col('event').is_not_null())
+    return train
 
 def downcast_all(
     config: dict, 

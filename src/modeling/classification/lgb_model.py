@@ -1,12 +1,17 @@
 import os
 import gc
+import json
 
 import pickle
 import pandas as pd
 import polars as pl
+import seaborn as sns
 import lightgbm as lgb
+import matplotlib.pyplot as plt
 
 from functools import partial
+from typing import Tuple
+
 from src.metric.custom_metric import competition_metric_lgb, MetricUtils
 
 def run_lgb_experiment(
@@ -145,3 +150,113 @@ def save_model(
             ), 'wb'
         ) as file:
             pickle.dump(progress_list, file)
+
+def evaluate_lgb_score(
+        config: dict, experiment_name: str,
+        params_model: dict, feature_list: list,
+    ) -> None:
+
+    save_path = os.path.join(
+        config['SAVE_RESULTS_PATH'], 
+        experiment_name
+    )
+    
+    # Find best epoch
+    with open(
+        os.path.join(
+            save_path,
+            'progress_list_lgb.pkl'
+        ), 'rb'
+    ) as file:
+        progress_list = pickle.load(file)
+
+    with open(
+        os.path.join(
+            save_path,
+            'model_list_lgb.pkl'
+        ), 'rb'
+    ) as file:
+        model_list = pickle.load(file)
+
+        
+    progress_dict = {
+        'time': range(params_model['n_round']),
+    }
+
+    progress_dict.update(
+            {
+                f"event_detection_ap_fold_{i}": progress_list[i]['valid']["event_detection_ap"]
+                for i in range(config['N_FOLD'])
+            }
+        )
+
+    progress_df = pd.DataFrame(progress_dict)
+
+    progress_df[f"average_event_detection_ap"] = progress_df.loc[
+        :, ["event_detection_ap" in x for x in progress_df.columns]
+    ].mean(axis =1)
+    
+    progress_df[f"std_{params_model['metric']}"] = progress_df.loc[
+        :, ["event_detection_ap" in x for x in progress_df.columns]
+    ].std(axis =1)
+
+    best_epoch = int(progress_df[f"average_event_detection_ap"].argmax())
+    
+    best_score = progress_df.loc[
+        best_epoch,
+        f"average_event_detection_ap"
+    ]
+    std_score = progress_df.loc[
+        best_epoch, f"std_event_detection_ap"
+    ]
+
+    print(f'Best epoch: {best_epoch}, CV-Event Detection: {best_score:.5f} ± {std_score:.5f}')
+
+    best_result = {
+        'best_epoch': best_epoch+1,
+        'best_score': best_score
+    }
+
+    with open(
+        os.path.join(
+            save_path,
+            'best_result_lgb.txt'
+        ), 'w'
+    ) as file:
+        json.dump(best_result, file)
+
+    explain_model(
+        config=config, best_result=best_result, experiment_name=experiment_name, 
+        model_list=model_list, feature_list=feature_list
+    )
+
+
+def explain_model(
+        config: dict, best_result: dict, experiment_name: str,
+        model_list: Tuple[lgb.Booster], feature_list: list,
+    ) -> None:
+    
+    save_path = os.path.join(
+        config['SAVE_RESULTS_PATH'], 
+        experiment_name
+    )
+    
+    feature_importances = pd.DataFrame()
+    feature_importances['feature'] = feature_list
+
+    for fold_, model in enumerate(model_list):
+        feature_importances[f'fold_{fold_}'] = model.feature_importance(
+            importance_type='gain', iteration=best_result['best_epoch']
+        )
+
+    feature_importances['average'] = feature_importances[
+        [f'fold_{fold_}' for fold_ in range(config['N_FOLD'])]
+    ].mean(axis=1)
+
+    fig = plt.figure(figsize=(12,8))
+    sns.barplot(data=feature_importances.sort_values(by='average', ascending=False).head(50), x='average', y='feature');
+    plt.title(f"50 TOP feature importance over {config['N_FOLD']} average")
+
+    fig.savefig(
+        os.path.join(save_path, 'importance_plot.png')
+    )

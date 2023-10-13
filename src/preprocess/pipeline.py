@@ -186,11 +186,17 @@ def downcast_all(
 
 def add_target(train_series: pl.LazyFrame, train_events: pl.LazyFrame) -> pl.LazyFrame:
     #get range of usable step from train events
-    train_events = train_events.with_columns(
-        pl.col('step').alias('first_step'),
-        pl.col('step').shift(-1).over('series_id').alias('second_step')
-    ).filter(pl.all_horizontal('first_step', 'second_step').is_not_null()).select(
-        ['series_id', 'event', 'first_step', 'second_step']
+    train_events = (
+        train_events.with_columns(
+            pl.col('step').alias('first_step'),
+            pl.col('step').shift(-1).over('series_id').alias('second_step')
+        ).filter(pl.all_horizontal('first_step', 'second_step').is_not_null())
+        .with_columns(
+            pl.arange(0, pl.count()).over('series_id').alias('number_event')
+        )
+        .select(
+            ['series_id', 'event', 'first_step', 'second_step', 'number_event']
+        )
     )
     print('Running join assert')
     start_rows = train_series.select(pl.count()).collect().item()

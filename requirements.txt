@@ -7,3 +7,4 @@ plotly
 kaggle
 pyarrow
 polars
+seaborn

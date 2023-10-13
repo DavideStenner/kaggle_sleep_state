@@ -10,6 +10,7 @@ if __name__ == '__main__':
     parser.add_argument('--log', default=10)
     parser.add_argument('--skip_save', action='store_true')
     parser.add_argument('--dev', action='store_true')
+    parser.add_argument('--sampling', default=30)
 
     args = parser.parse_args()
         
@@ -24,5 +25,6 @@ if __name__ == '__main__':
     run_lgb_experiment(
         experiment_name=args.name,config=config,
         params_model=params_model, feature_list=config['FEATURE_LIST'],
-        log_evaluation=args.log, skip_save=args.skip_save
+        log_evaluation=args.log, skip_save=args.skip_save,
+        dev=args.dev, sampling_=args.sampling
     )

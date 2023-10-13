@@ -13,5 +13,10 @@
     "FEATURE_LIST": [
         "anglez", "enmo", "tz", "year", "month", "day", "hour", "minute", "signal_awake", "signal_onset",
         "diff_anglez", "diff_enmo", "activity_count", "lids"
-    ]
+    ],
+    "TOLERANCES": {
+        "0" : [12, 36, 60, 90, 120, 150, 180, 240, 300, 360],
+        "1": [12, 36, 60, 90, 120, 150, 180, 240, 300, 360]    
+    }
+    
 }

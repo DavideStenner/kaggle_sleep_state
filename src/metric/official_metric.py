@@ -278,31 +278,64 @@ def filter_detections(
 
     return detections.loc[is_scored].reset_index(drop=True)
 
-
 def match_detections(
-        tolerance: float, ground_truths: pd.DataFrame, detections: pd.DataFrame
+            tolerance: float, ground_truths: pd.DataFrame, detections: pd.DataFrame
 ) -> pd.DataFrame:
     """Match detections to ground truth events. Arguments are taken from a common event x tolerance x series_id evaluation group."""
+
     detections_sorted = detections.sort_values(score_column_name, ascending=False).dropna()
-    is_matched = np.full_like(detections_sorted[event_column_name], False, dtype=bool)
-    gts_matched = set()
-    for i, det in enumerate(detections_sorted.itertuples(index=False)):
-        best_error = tolerance
-        best_gt = None
+    ground_truths = ground_truths.dropna()
 
-        for gt in ground_truths.itertuples(index=False):
-            error = abs(getattr(det, time_column_name) - getattr(gt, time_column_name))
-            if error < best_error and gt not in gts_matched:
-                best_gt = gt
-                best_error = error
-
-        if best_gt is not None:
-            is_matched[i] = True
-            gts_matched.add(best_gt)
-
-    detections_sorted['matched'] = is_matched
+    if (ground_truths.empty) or (detections_sorted.empty):
+        return None
+    
+    submission_array = detections_sorted['step'].to_numpy('int32')
+    solution_array = ground_truths['step'].to_numpy('int32')
+            
+    already_detected = set()
+    results_ = []
+    for sub in submission_array:
+        diff_matrix = np.abs(
+            solution_array - sub
+        ) < tolerance
+        
+        if len(already_detected) > 0:
+            diff_matrix[list(already_detected)] = False
+        
+        if any(diff_matrix):
+            already_detected.add(np.where(diff_matrix)[0][0])
+            
+            results_.append(True)
+        else:
+            results_.append(False)
+            
+    detections_sorted['matched'] = results_
 
     return detections_sorted
+
+# def match_detections(
+#         tolerance: float, ground_truths: pd.DataFrame, detections: pd.DataFrame
+# ) -> pd.DataFrame:
+#     """Match detections to ground truth events. Arguments are taken from a common event x tolerance x series_id evaluation group."""
+#     detections_sorted = detections.sort_values(score_column_name, ascending=False).dropna()
+#     is_matched = np.full_like(detections_sorted[event_column_name], False, dtype=bool)
+#     gts_matched = set()
+#     for i, det in enumerate(detections_sorted.itertuples(index=False)):
+#         best_error = tolerance
+#         best_gt = None
+
+#         for gt in ground_truths.itertuples(index=False):
+#             error = abs(getattr(det, time_column_name) - getattr(gt, time_column_name))
+#             if error < best_error and gt not in gts_matched:
+#                 best_gt = gt
+#                 best_error = error
+
+#         if best_gt is not None:
+#             is_matched[i] = True
+#             gts_matched.add(best_gt)
+#     detections_sorted['matched'] = is_matched
+
+#     return detections_sorted
 
 
 def precision_recall_curve(
@@ -324,7 +357,7 @@ def precision_recall_curve(
     tps = np.cumsum(matches)[threshold_idxs]
     fps = np.cumsum(~matches)[threshold_idxs]
 
-    precision = tps / (tps + fps)
+    precision = (tps / (tps + fps)).astype('float')
     precision[np.isnan(precision)] = 0
     recall = tps / p  # total number of ground truths might be different than total number of matches
 
@@ -423,7 +456,7 @@ def event_detection_ap(
         detections_matched.append(
             match_detections(dets['tolerance'].iloc[0], gts, dets)
         )
-    detections_matched = pd.concat(detections_matched)
+    detections_matched = pd.concat([df for df in detections_matched if df is not None])
 
     # Compute AP per event x tolerance group
     event_classes = ground_truths[event_column_name].unique()

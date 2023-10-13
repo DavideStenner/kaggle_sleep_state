@@ -32,30 +32,14 @@ def run_lgb_experiment(
     model_list = []
     progress_list = []
 
-    train = pl.scan_parquet(
-        os.path.join(
-            config['DATA_FOLDER'], config['PREPROCESS_FOLDER'], 
-            'train.parquet'
-        )
-    )
-    if dev:
-        selected_series_id = (
-            train.select('series_id')
-            .sort(by='series_id').unique()
-            .head(3).collect().to_numpy().reshape((-1)).tolist()
-        )
-        
-        train = train.filter(
-            pl.col('series_id').is_in(selected_series_id)
-        )
-        train = (
-            train.sort(['series_id', 'step']).group_by('series_id')
-            .agg(pl.all().head(14400))
-            .explode(pl.all().exclude("series_id"))
-        )
-        print(f'Using only: {train.select(pl.count()).collect().item()} rows')
-
     for fold_ in range(config['N_FOLD']):
+        
+        train = scan_train_parquet(
+            path_file=os.path.join(
+                config['DATA_FOLDER'], config['PREPROCESS_FOLDER'], 
+                'train.parquet'
+            ), dev=dev
+        )
         print(f'\n\nStarting fold {fold_}\n\n\n')
         
         progress = {}
@@ -120,6 +104,28 @@ def run_lgb_experiment(
                 model_list=model_list, progress_list=progress_list,
                 save_path=save_path
             )
+
+def scan_train_parquet(path_file: str, dev: bool) -> pl.LazyFrame:
+    train = pl.scan_parquet(path_file)
+    
+    if dev:
+        selected_series_id = (
+            train.select('series_id')
+            .sort(by='series_id').unique()
+            .head(3).collect().to_numpy().reshape((-1)).tolist()
+        )
+        
+        train = train.filter(
+            pl.col('series_id').is_in(selected_series_id)
+        )
+        train = (
+            train.sort(['series_id', 'step']).group_by('series_id')
+            .agg(pl.all().head(14400))
+            .explode(pl.all().exclude("series_id"))
+        )
+        print(f'Using only: {train.select(pl.count()).collect().item()} rows')
+
+    return train
 
 def save_model(
         model_list: list, progress_list: list, save_path: str

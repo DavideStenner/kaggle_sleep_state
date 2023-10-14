@@ -7,8 +7,11 @@ if __name__ == '__main__':
     
     parser.add_argument('--dev', action='store_true')
     parser.add_argument('--dash_data', action='store_true')
-    parser.add_argument('--filter_data', action='store_false')
 
     args = parser.parse_args()
-        
-    train_pipeline(filter_data=args.filter_data, dev=args.dev, dash_data=args.dash_data)
+    
+    #normal train file
+    train_pipeline(file_name='train.parquet', filter_data=True, dev=args.dev, dash_data=args.dash_data)
+    
+    #missing values file
+    train_pipeline(file_name='train_missing.parquet', filter_data=False, dev=args.dev, dash_data=False)

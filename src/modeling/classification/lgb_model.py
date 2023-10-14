@@ -110,6 +110,91 @@ def run_lgb_experiment(
                 save_path=save_path
             )
 
+def run_missing_lgb_experiment(
+        experiment_name: str,
+        config: dict, params_model: dict,
+        feature_list: list, log_evaluation: int, dev: bool, skip_save: bool
+    ) -> None:
+
+    save_path = os.path.join(
+        config['SAVE_RESULTS_PATH'], 
+        experiment_name
+    )
+    
+    if not os.path.exists(save_path):
+        os.makedirs(save_path)
+
+    model_list = []
+    progress_list = []
+
+    for fold_ in range(config['N_FOLD']):
+        
+        train = scan_train_parquet(
+            path_file=os.path.join(
+                config['DATA_FOLDER'], config['PREPROCESS_FOLDER'], 
+                'train_missing.parquet'
+            ), dev=dev
+        ).with_columns(
+            pl.col('event').is_null().cast(pl.UInt8)
+        )
+        print(f'\n\nStarting fold {fold_}\n\n\n')
+        
+        progress = {}
+
+        callbacks_list = [
+            lgb.record_evaluation(progress),
+            lgb.log_evaluation(
+                period=log_evaluation, 
+                show_stdv=False
+            )
+        ]
+        print('Collecting dataset')
+        train_filtered = train.filter(
+            pl.col('fold') != fold_
+        )
+        test_filtered = train.filter(
+            pl.col('fold') == fold_
+        )
+        train_matrix = lgb.Dataset(
+            train_filtered.select(feature_list).collect().to_numpy().astype('float32'),
+            train_filtered.select(config['TARGET_COL']).collect().to_numpy().reshape((-1)).astype('uint8')
+        )
+        
+        test_matrix = lgb.Dataset(
+            test_filtered.select(feature_list).collect().to_numpy().astype('float32'),
+            test_filtered.select(config['TARGET_COL']).collect().to_numpy().reshape((-1)).astype('uint8')
+        )
+
+        print('Start training')
+        model = lgb.train(
+            params=params_model,
+            train_set=train_matrix, 
+            num_boost_round=params_model['n_round'],
+            valid_sets=[test_matrix],
+            valid_names=['valid'],
+            callbacks=callbacks_list,
+        )
+
+        if ~skip_save:
+            model.save_model(
+                os.path.join(
+                    save_path,
+                    f'lgb_{fold_}.txt'
+                )
+            )
+
+        model_list.append(model)
+        progress_list.append(progress)
+
+        del train_matrix, test_matrix
+        
+        _ = gc.collect()
+        if ~skip_save:
+            save_model(
+                model_list=model_list, progress_list=progress_list,
+                save_path=save_path
+            )
+
 def scan_train_parquet(path_file: str, dev: bool) -> pl.LazyFrame:
     train = pl.scan_parquet(path_file)
     
@@ -154,6 +239,7 @@ def save_model(
 def evaluate_lgb_score(
         config: dict, experiment_name: str,
         params_model: dict, feature_list: list,
+        add_comp_metric: bool, metric_to_max: str
     ) -> None:
 
     save_path = os.path.join(
@@ -182,35 +268,54 @@ def evaluate_lgb_score(
     progress_dict = {
         'time': range(params_model['n_round']),
     }
+    metric_to_eval = params_model['metric'].copy()
 
-    progress_dict.update(
-            {
-                f"event_detection_ap_fold_{i}": progress_list[i]['valid']["event_detection_ap"]
-                for i in range(config['N_FOLD'])
-            }
-        )
+    if add_comp_metric:
+        metric_to_eval += ['event_detection_ap']
+
+    for metric_ in metric_to_eval:
+        progress_dict.update(
+                {
+                    f"{metric_}_fold_{i}": progress_list[i]['valid'][metric_]
+                    for i in range(config['N_FOLD'])
+                }
+            )
 
     progress_df = pd.DataFrame(progress_dict)
-
-    progress_df[f"average_event_detection_ap"] = progress_df.loc[
-        :, ["event_detection_ap" in x for x in progress_df.columns]
-    ].mean(axis =1)
+    metric_line_plot = []
     
-    progress_df[f"std_{params_model['metric']}"] = progress_df.loc[
-        :, ["event_detection_ap" in x for x in progress_df.columns]
-    ].std(axis =1)
+    for metric_ in metric_to_eval:
+        metric_line_plot.append(f"average_{metric_}")
+        
+        progress_df[f"average_{metric_}"] = progress_df.loc[
+            :, [metric_ in x for x in progress_df.columns]
+        ].mean(axis =1)
+        
+        progress_df[f"std_{metric_}"] = progress_df.loc[
+            :, [metric_ in x for x in progress_df.columns]
+        ].std(axis =1)
 
-    best_epoch = int(progress_df[f"average_event_detection_ap"].argmax())
+    plot_df = pd.melt(progress_df[['time'] + metric_line_plot], ['time'])
+
+    fig = plt.figure(figsize=(12,8))
+    sns.lineplot(data=plot_df, x='time', y='value', hue='variable')
+    plt.title(f"Metric line plot over {config['N_FOLD']} average")
+
+    fig.savefig(
+        os.path.join(save_path, 'performance_plot.png')
+    )
+    
+    best_epoch = int(progress_df[f"average_{metric_to_max}"].argmax())
     
     best_score = progress_df.loc[
         best_epoch,
-        f"average_event_detection_ap"
+        f"average_{metric_to_max}"
     ]
     std_score = progress_df.loc[
-        best_epoch, f"std_event_detection_ap"
+        best_epoch, f"std_{metric_to_max}"
     ]
 
-    print(f'Best epoch: {best_epoch}, CV-Event Detection: {best_score:.5f} ± {std_score:.5f}')
+    print(f'Best epoch: {best_epoch}, CV-{metric_to_max}: {best_score:.5f} ± {std_score:.5f}')
 
     best_result = {
         'best_epoch': best_epoch+1,

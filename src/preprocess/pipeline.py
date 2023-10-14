@@ -304,7 +304,7 @@ def add_cv_folder(train: pl.LazyFrame) -> pl.LazyFrame:
     )
     return train
 
-def train_pipeline(filter_data: bool=True, dev: bool=False, dash_data: bool=False) -> None:
+def train_pipeline(file_name: str, filter_data: bool=True, dev: bool=False, dash_data: bool=False) -> None:
     
     #import dataset
     config=import_config_dict()
@@ -342,6 +342,6 @@ def train_pipeline(filter_data: bool=True, dev: bool=False, dash_data: bool=Fals
         os.path.join(
             config['DATA_FOLDER'],
             config['PREPROCESS_FOLDER'],
-            'train.parquet'
+            file_name
         )
     )

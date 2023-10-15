@@ -12,7 +12,7 @@ if __name__ == '__main__':
     parser.add_argument('--dev', action='store_true')
     parser.add_argument('--sampling', default=30)
     parser.add_argument('--train', action='store_true')
-    parser.add_argument('--train_missing', action='store_true')
+    parser.add_argument('--missing', action='store_true')
     
     args = parser.parse_args()
         
@@ -42,7 +42,7 @@ if __name__ == '__main__':
         add_comp_metric=True, metric_to_max = 'event_detection_ap'
     )
     
-    if args.train_missing:
+    if args.missing:
         missing_experiment_name = args.name + '_na'
         print('Starting training missing')
         

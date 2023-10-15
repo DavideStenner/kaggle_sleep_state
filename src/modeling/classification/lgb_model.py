@@ -294,6 +294,10 @@ def evaluate_lgb_score(
         progress_df[f"std_{metric_}"] = progress_df.loc[
             :, [metric_ in x for x in progress_df.columns]
         ].std(axis =1)
+        
+    progress_df[['time'] + metric_line_plot].to_csv(
+        os.path.join(save_path, 'metric_df.csv'), index=False
+    )
 
     plot_df = pd.melt(progress_df[['time'] + metric_line_plot], ['time'])
 

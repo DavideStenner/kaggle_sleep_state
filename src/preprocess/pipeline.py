@@ -184,7 +184,7 @@ def downcast_all(
 
     return train_series, train_events
 
-def add_target(train_series: pl.LazyFrame, train_events: pl.LazyFrame) -> pl.LazyFrame:
+def correct_events(train_events: pl.LazyFrame) -> pl.LazyFrame:
     #get range of usable step from train events
     train_events = (
         train_events.with_columns(
@@ -198,6 +198,9 @@ def add_target(train_series: pl.LazyFrame, train_events: pl.LazyFrame) -> pl.Laz
             ['series_id', 'event', 'first_step', 'second_step', 'number_event']
         )
     )
+    return train_events
+
+def add_target(train_series: pl.LazyFrame, train_events: pl.LazyFrame) -> pl.LazyFrame:
     print('Running join assert')
     start_rows = train_series.select(pl.count()).collect().item()
 
@@ -233,6 +236,7 @@ def add_target(train_series: pl.LazyFrame, train_events: pl.LazyFrame) -> pl.Laz
     train = train.drop(['first_step', 'second_step'])
     
     return train
+
 def add_shift(train: pl.LazyFrame) -> pl.LazyFrame:
     train = train.with_columns(
         (pl.col('anglez') - pl.col('anglez').shift(1).over('series_id')).alias('diff_anglez').cast(pl.Float32),
@@ -267,15 +271,16 @@ def add_feature(train: pl.LazyFrame) -> pl.LazyFrame:
     train = add_lift(train)
     return train
 
-def add_cv_folder(train: pl.LazyFrame) -> pl.LazyFrame:
+def add_cv_folder(train: pl.LazyFrame, train_events: pl.LazyFrame) -> Tuple[pl.LazyFrame]:
     """
     Standard Cross Validation on series id
 
     Args:
         train (pl.LazyFrame): 
+        train_events (pl.LazyFrame)
 
     Returns:
-        pl.LazyFrame: 
+        Tuple[pl.LazyFrame]: 
     """
     series_id_fold = train.group_by(
         ['series_id']
@@ -302,9 +307,17 @@ def add_cv_folder(train: pl.LazyFrame) -> pl.LazyFrame:
         series_id_fold.lazy(),
         on='series_id', how='left'
     )
-    return train
+    train_events = train_events.join(
+        series_id_fold.lazy(),
+        on='series_id', how='left'
+    )
+    return train, train_events
 
-def train_pipeline(file_name: str, filter_data: bool=True, dev: bool=False, dash_data: bool=False) -> None:
+def train_pipeline(
+        file_name: str, 
+        filter_data: bool=True, dev: bool=False, 
+        dash_data: bool=False, save_event: bool=False
+    ) -> None:
     
     #import dataset
     config=import_config_dict()
@@ -314,6 +327,8 @@ def train_pipeline(file_name: str, filter_data: bool=True, dev: bool=False, dash
     train_series, train_events = downcast_all(
         config=config, train_series=train_series, train_events=train_events,
     )
+    
+    train_events = correct_events(train_events=train_events)
     train = add_target(train_series=train_series, train_events=train_events)
         
     if dash_data:
@@ -331,8 +346,24 @@ def train_pipeline(file_name: str, filter_data: bool=True, dev: bool=False, dash
     
     if filter_data:
         train = filter_train(train)
-
-    train = add_cv_folder(train)
+    
+    train, train_events = add_cv_folder(train=train, train_events=train_events)
+    
+    #save in correct original format, without na
+    if save_event:
+        print('Saving train_events')
+        (
+            train_events.select(
+                ['series_id', 'event', 'first_step', 'fold']
+            )
+            .rename({'first_step': 'step'}).collect()
+        ).write_parquet(
+            os.path.join(
+                config['DATA_FOLDER'],
+                config['PREPROCESS_FOLDER'],
+                'train_events.parquet'
+            )
+        )
 
     print('Starting to collect data')
     train = train.collect()

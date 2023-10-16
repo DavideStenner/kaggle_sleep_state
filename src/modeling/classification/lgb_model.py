@@ -288,7 +288,7 @@ def evaluate_lgb_score(
     fig.savefig(
         os.path.join(save_path, 'performance_plot.png')
     )
-    
+    plt.close(fig)
     best_epoch = int(progress_df[f"average_{metric_to_max}"].argmax())
     
     best_score = progress_df.loc[
@@ -343,11 +343,12 @@ def explain_model(
     ].mean(axis=1)
 
     fig = plt.figure(figsize=(12,8))
-    sns.barplot(data=feature_importances.sort_values(by='average', ascending=False).head(50), x='average', y='feature');
+    sns.barplot(data=feature_importances.sort_values(by='average', ascending=False).head(50), x='average', y='feature')
     plt.title(f"50 TOP feature importance over {config['N_FOLD']} average")
 
     fig.savefig(
         os.path.join(save_path, 'importance_plot.png')
     )
+    plt.close(fig)
     
     get_shap_insight(save_path=save_path, config=config)

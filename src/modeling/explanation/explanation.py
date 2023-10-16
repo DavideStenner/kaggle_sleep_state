@@ -46,7 +46,8 @@ def get_shap_insight(
     )
 
     series_id = (
-        test.group_by('series_id').agg(pl.count().alias('count'))
+        test
+        .group_by('series_id').agg(pl.count().alias('count'))
         .sort('count', descending=True)
         .select('series_id').head(sample_series_id).unique()
         .collect().to_numpy()
@@ -84,7 +85,7 @@ def get_shap_insight(
     plt.savefig(
         os.path.join(save_path_shap, "shap_summary.png")
     )
-    plt.show()
+    plt.close()
 
     col_importance = np.argsort(
         np.mean(
@@ -96,7 +97,7 @@ def get_shap_insight(
     for k in range(top_n):
         col_num = col_importance[k]
         feature_name = config['FEATURE_LIST'][col_num]
-
+        
         shap.dependence_plot(
             feature_name, 
             explanation_.values, features=test.iloc[:shaps.shape[0]], 
@@ -105,7 +106,7 @@ def get_shap_insight(
         plt.savefig(
             os.path.join(save_path_shap, f"dependance_{feature_name}.png")
         )
-        plt.show()
+        plt.close()
 
 
 def shap_by_chunk(

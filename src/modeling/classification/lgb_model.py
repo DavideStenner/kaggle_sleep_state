@@ -13,6 +13,8 @@ from functools import partial
 from typing import Tuple
 
 from src.metric.custom_metric import competition_metric_lgb, MetricUtils
+from src.modeling.utils import scan_train_parquet
+from src.modeling.explanation.explanation import get_shap_insight
 
 def run_lgb_experiment(
         experiment_name: str,
@@ -195,28 +197,6 @@ def run_missing_lgb_experiment(
                 save_path=save_path
             )
 
-def scan_train_parquet(path_file: str, dev: bool) -> pl.LazyFrame:
-    train = pl.scan_parquet(path_file)
-    
-    if dev:
-        selected_series_id = (
-            train.select('series_id')
-            .sort(by='series_id').unique()
-            .head(3).collect().to_numpy().reshape((-1)).tolist()
-        )
-        
-        train = train.filter(
-            pl.col('series_id').is_in(selected_series_id)
-        )
-        train = (
-            train.sort(['series_id', 'step']).group_by('series_id')
-            .agg(pl.all().head(14400))
-            .explode(pl.all().exclude("series_id"))
-        )
-        print(f'Using only: {train.select(pl.count()).collect().item()} rows')
-
-    return train
-
 def save_model(
         model_list: list, progress_list: list, save_path: str
     )->None:
@@ -369,3 +349,5 @@ def explain_model(
     fig.savefig(
         os.path.join(save_path, 'importance_plot.png')
     )
+    
+    get_shap_insight(save_path=save_path, config=config)

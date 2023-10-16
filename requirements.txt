@@ -8,3 +8,6 @@ kaggle
 pyarrow
 polars
 seaborn
+shap
+IProgress
+ipywidgets

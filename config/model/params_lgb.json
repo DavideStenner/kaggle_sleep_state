@@ -13,5 +13,5 @@
         "verbosity": -1,
         "n_round": 100
     },
-    "metric_eval": ["binary_logloss", "auc", "average_precision"]
+    "metric_eval": ["binary_logloss"]
 }

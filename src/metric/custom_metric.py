@@ -7,21 +7,25 @@ import lightgbm as lgb
 import polars as pl
 
 from src.metric import official_metric
+from src.modeling.classification.interval_pred import detection_prediction
 
 class MetricUtils():
-    def __init__(self, sampling: int) -> None:
+    def __init__(self) -> None:
         self.df_ = None
         self.tolerances_ = None
-        self.sampling_ = sampling
-    
+        self.events_ = None
+        
     def update_df(self, df_):
         self.df_=df_
         
+    def update_events(self, events_):
+        self.events_=events_
+
     def update_tolerances(self, tolerances):
         self.tolerances_=tolerances
     
-    def return_sampling(self):
-        return self.sampling_
+    def return_events(self):
+        return self.events_
     
     def return_df(self):
         return self.df_.copy()
@@ -37,24 +41,13 @@ def competition_metric_lgb(
     """
     Pearson correlation coefficient metric
     """
-    y_true = eval_data.get_label()
+    # y_true = eval_data.get_label()
 
-    solution_ = init_metric.return_df()
+    solution_ = init_metric.return_events()
     submission_ = init_metric.return_df()
     tolerances_ = init_metric.return_tolerances()
-    sampling_ = init_metric.return_sampling()
-    
-    assert (submission_['series_id']==solution_['series_id']).mean() == 1.
-    assert (submission_['step']==solution_['step']).mean() == 1.
 
-    submission_['event'] = (y_pred>0.5).astype(int)
-    submission_['score'] = y_pred
-
-    solution_['event'] = (y_true).astype(int)
-    sampled_index = solution_.groupby(['series_id', 'number_event']).sample(sampling_).index
-
-    solution_ = solution_.loc[sampled_index, ['series_id', 'step', 'event']]
-    submission_ = submission_.loc[sampled_index, ['series_id', 'step', 'event', 'score']]
+    submission_ = detection_prediction(submission=submission_, y_pred=y_pred)
 
     if new_score:
         score_ = polars_new_score(
@@ -133,48 +126,6 @@ def polars_new_score(
         pl.col('event').cast(pl.Int64),
         pl.col('series_id').cast(pl.Int64)
     )
-    #NEW WORKING
-    # aggregation_keys_submission = aggregation_keys.join(
-    #     submission_, on=['event', 'series_id'], how='left'
-    # ).filter(pl.col('step').is_not_null())
-
-    # aggregation_keys_solution = (
-    #     aggregation_keys.join(
-    #         solution_, on=['event', 'series_id'], how='left'
-    #     ).filter(pl.col('step').is_not_null())
-    #     .select(['event', 'series_id', 'tolerances', 'step'])
-    # )
-
-    # matched_first_logic = aggregation_keys_submission.join(
-    #     aggregation_keys_solution, 
-    #     left_on=['event', 'series_id', 'tolerances'],
-    #     right_on=['event', 'series_id', 'tolerances'],
-    #     how='cross', suffix='_sol'
-    # ).select(
-    #     [
-    #         'event', 'series_id', 'tolerances', 
-    #         'score', 'step', 'step_sol'
-    #     ]
-    # ).filter(
-    #     (pl.col('step')-pl.col('step_sol')).abs()<pl.col('tolerances')
-    # ).sort('score', descending=True).unique(
-    #     [
-    #         'event', 'series_id', 'tolerances', 'step'
-    #     ], keep='first'
-    # ).with_columns(
-    #     pl.lit(True).cast(pl.Boolean).alias('matched')
-    # )
-
-
-    # detection_matched = aggregation_keys_submission.join(
-    #     matched_first_logic, 
-    #     on = ['event', 'series_id', 'tolerances', 'step'],
-    #     how='left'
-    # ).select(
-    #     ['event', 'series_id', 'tolerances', 'step', 'matched']
-    # ).with_columns(pl.col('matched').fill_null(False)).collect()
-
-    #LAST WORKING
     #each group is based on tolerance
     #add information on submission by event, series -> varies on tolerance
     aggregation_keys_submission = aggregation_keys.join(

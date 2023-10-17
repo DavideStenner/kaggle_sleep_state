@@ -20,9 +20,9 @@ def run_lgb_experiment(
         experiment_name: str,
         config: dict, params_model: dict,
         feature_list: list, log_evaluation: int, skip_save: bool,
-        dev: bool, sampling_: int
+        dev: bool
     ) -> None:
-    init_metric = MetricUtils(sampling=sampling_)
+    init_metric = MetricUtils()
     
     metric_lgb = partial(competition_metric_lgb, init_metric)
     

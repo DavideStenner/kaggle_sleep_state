@@ -6,11 +6,11 @@ if __name__ == '__main__':
     
     parser = argparse.ArgumentParser()
     
-    parser.add_argument('--name', default='lgbm')
-    parser.add_argument('--log', default=10)
+    parser.add_argument('--name', default='lgbm', type=str)
+    parser.add_argument('--log', default=10, type=int)
     parser.add_argument('--skip_save', action='store_true')
     parser.add_argument('--dev', action='store_true')
-    parser.add_argument('--sampling', default=30)
+    parser.add_argument('--sampling', default=30, type=int)
     parser.add_argument('--train', action='store_true')
     parser.add_argument('--missing', action='store_true')
     

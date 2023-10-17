@@ -47,6 +47,12 @@ def run_lgb_experiment(
                 'train.parquet'
             ), dev=dev
         )
+        train_events = pl.scan_parquet(
+            source=os.path.join(
+                config['DATA_FOLDER'], config['PREPROCESS_FOLDER'], 
+                'train_events.parquet'
+            )
+        )
         print(f'\n\nStarting fold {fold_}\n\n\n')
         
         progress = {}
@@ -65,6 +71,11 @@ def run_lgb_experiment(
         test_filtered = train.filter(
             pl.col('fold') == fold_
         )
+        
+        test_events_filtered = train_events.filter(
+            pl.col('fold') == fold_
+        )
+        
         train_matrix = lgb.Dataset(
             train_filtered.select(feature_list).collect().to_numpy().astype('float32'),
             train_filtered.select(config['TARGET_COL']).collect().to_numpy().reshape((-1)).astype('uint8')
@@ -77,8 +88,13 @@ def run_lgb_experiment(
 
         init_metric.update_df(
             test_filtered.select(
-                ['series_id', 'step', 'number_event']
-            ).collect().to_pandas()
+                ['series_id', 'step', 'year', 'month', 'day', 'hour']
+            ).sort(['series_id', 'step']).collect().to_pandas()
+        )
+        init_metric.update_events(
+            test_events_filtered.select(
+                ['series_id', 'event', 'step']
+            ).sort(['series_id', 'step']).collect().to_pandas()
         )
 
         print('Start training')

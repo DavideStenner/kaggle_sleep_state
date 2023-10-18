@@ -5,7 +5,7 @@ from typing import List
 
 def detection_prediction(
         submission: pd.DataFrame, y_pred: np.array,
-        prediction_rolling: int=360, score_rolling: int=12*60*5,
+        prediction_rolling: int=720, score_rolling: int=12*60*5,
         col_select: List[str] = ['series_id','step','event','score']
     ) -> pd.DataFrame:
     

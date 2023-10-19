@@ -2,12 +2,14 @@ import os
 import gc
 import json
 import time
+import itertools
 
 import numpy as np
 import pandas as pd
 import polars as pl
 
-from typing import Tuple
+from typing import Tuple, List
+
 
 from src.utils import import_config_dict
 
@@ -25,7 +27,7 @@ def downcast_timestamp(
     #keep local time zone
     train_series = train_series.with_columns(
         pl.col('timestamp').str.replace(r".{5}$", "").alias('timestamp'),
-        pl.col('timestamp').str.slice(-5).map_dict(mapped_tz).alias('tz'),
+        pl.col('timestamp').str.slice(-5).map_dict(mapped_tz).cast(pl.UInt8).alias('tz'),
     )
     #get feature
     transform_list = [
@@ -245,30 +247,108 @@ def add_shift(train: pl.LazyFrame) -> pl.LazyFrame:
     
     return train
 
-def add_lift(train: pl.LazyFrame) -> pl.LazyFrame:
-    # https://www.nature.com/articles/s41598-020-79217-x.pdf
+def lift(train: pl.LazyFrame, center: bool, suffix: str) -> pl.LazyFrame:
+    #TODO
+    #ADD ROLLING AGG BOTTOM TO CALCULATE RIGHT ROLLING
+        
     train = train.with_columns(
         pl.col('step').cast(pl.Int32),
         (
             pl.max_horizontal(
                 pl.col('enmo') -0.2, pl.lit(0)
             ).rolling_sum(
-                window_size='120i', center=False,
+                window_size='120i', center=center,
                 closed='left', min_periods=120
-            ).over('series_id').alias('activity_count').cast(pl.Float32)
+            ).over('series_id').alias('activity_count' + suffix).cast(pl.Float32)
         )
     ).with_columns(
-        (100/(1+pl.col('activity_count'))).rolling_mean(
-            window_size='360i', center=False,
+        (100/(1+pl.col('activity_count' + suffix))).rolling_mean(
+            window_size='360i', center=center,
             closed='left', min_periods=360
-        ).over('series_id').alias('lids').cast(pl.Float32)
+        ).over('series_id').alias('lids' + suffix).cast(pl.Float32)
     )
+        
     return train
 
+def add_lift(train: pl.LazyFrame) -> pl.LazyFrame:
+    # https://www.nature.com/articles/s41598-020-79217-x.pdf
+
+    train = lift(train, center=False, suffix='_left')
+    train = lift(train, center=True, suffix='_center')
+        
+    return train
+
+def add_rolling_feature(
+        train: pl.LazyFrame, 
+        period_list: List[int] = [5, 15, 30, 60], 
+        col_list: List[str]=['enmo', 'anglez']
+    ) -> pl.LazyFrame:
+    
+    rolling_param = {
+        'center': True, 'closed': 'left'
+    }
+    list_rolling_operation = []
+    num_rolling_operation = 0
+    
+    col_period_product = itertools.product(col_list, period_list)
+    
+    for col, period in col_period_product:
+        period_step = period * 12
+        
+        rolling_param.update(
+            {
+                'window_size': f'{period_step}i', 
+                'min_periods': period_step
+            }
+        )
+        current_operation = [
+            pl.col(col).rolling_mean(**rolling_param)
+                .over('series_id').alias(f'{col}_{period_step}_mean').add(1_000_000).cast(pl.Int32),
+            
+            pl.col(col).rolling_std(**rolling_param)
+                .over('series_id').alias(f'{col}_{period_step}_std').add(1_000_000).cast(pl.Int32),
+            
+            pl.col(col).rolling_min(**rolling_param)
+                .over('series_id').alias(f'{col}_{period_step}_min').add(1_000_000).cast(pl.Int32),
+            
+            pl.col(col).rolling_max(**rolling_param)
+                .over('series_id').alias(f'{col}_{period_step}_max').add(1_000_000).cast(pl.Int32),
+            
+            pl.col(col).rolling_median(**rolling_param)
+                .over('series_id').alias(f'{col}_{period_step}_median').add(1_000_000).cast(pl.Int32),
+        ]
+        list_rolling_operation += current_operation
+        num_rolling_operation += len(current_operation)
+        
+    train = train.with_columns(list_rolling_operation)
+    
+    #adding mad feature
+    for col, period in col_period_product:
+        num_rolling_operation += 1
+        rolling_param.update(
+            {
+                'window_size': f'{period_step}i', 
+                'min_periods': period_step
+            }
+        )
+
+        train = train.with_columns(
+                (pl.col(col)-pl.col(f'{col}_{period_step}_median')).abs()
+                    .rolling_median(**rolling_param)
+                    .over('series_id').alias(f'{col}_{period_step}_mad').add(1_000_000).cast(pl.Int32),
+        )
+    print(f'Using {len(list_rolling_operation)} rolling feature')
+
+    return train
+    
+    
 def add_feature(train: pl.LazyFrame) -> pl.LazyFrame:
     train = add_shift(train)
     
     train = add_lift(train)
+    
+    # train = add_rolling_feature(train)
+    
     return train
 
 def add_cv_folder(train: pl.LazyFrame, train_events: pl.LazyFrame) -> Tuple[pl.LazyFrame]:

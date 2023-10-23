@@ -9,12 +9,14 @@ import seaborn as sns
 import lightgbm as lgb
 import matplotlib.pyplot as plt
 
-from functools import partial
+from tqdm import tqdm
 from typing import Tuple
+from functools import partial
 
 from src.metric.custom_metric import competition_metric_lgb, MetricUtils
 from src.modeling.utils import scan_train_parquet
 from src.modeling.explanation.explanation import get_shap_insight
+from src.modeling.postprocess.postprocess import oof_post_process_score
 
 def run_lgb_experiment(
         experiment_name: str,
@@ -232,6 +234,70 @@ def save_model(
         ) as file:
             pickle.dump(progress_list, file)
 
+def oof_lgb_prediction(
+        config: dict, best_result: dict, experiment_name: str, 
+        model_list: Tuple[lgb.Booster], feature_list: Tuple[str]
+    ) -> None:
+    
+    print('Getting OOF predictions')
+    
+    save_path = os.path.join(
+        config['SAVE_RESULTS_PATH'], 
+        experiment_name
+    )
+    path_train_file = os.path.join(
+        config['DATA_FOLDER'], config['PREPROCESS_FOLDER'], 
+        'train.parquet'
+    )
+    
+    number_rows = scan_train_parquet(
+        path_file=path_train_file, dev=False
+    ).select(pl.count().alias('number_rows')).collect().item()
+    
+    prediction_df = pd.DataFrame(
+        {
+            'y_true': pd.Series([-1] * number_rows, dtype='int8'),
+            'y_pred': pd.Series([-1] * number_rows, dtype='float'),
+            'series_id': pd.Series([-1] * number_rows, dtype='int32'),
+            'step': pd.Series([-1] * number_rows, dtype='int64')
+        }
+    )
+    prediction_df[['series_id', 'step', 'hour', 'fold']] = scan_train_parquet(
+        path_file=path_train_file, dev=False
+    ).select(['series_id', 'step', 'hour', 'fold']).collect().to_numpy().tolist()
+    
+    for fold_ in range(config['N_FOLD']):
+        model_ = model_list[fold_]
+        
+        dataset_test = scan_train_parquet(
+            path_file=path_train_file, dev=False
+        ).filter(
+            pl.col('fold') == fold_
+        ).select(
+            feature_list + [config['TARGET_COL'], 'series_id', 'step']
+        ).collect()
+    
+        test_x = dataset_test.select(feature_list).to_numpy().astype('float32')
+        
+        pred_y = model_.predict(test_x, num_iteration=best_result['best_epoch'])
+
+        prediction_df.loc[prediction_df['fold']==fold_, 'y_true'] = dataset_test.select(config['TARGET_COL']).to_numpy()
+        prediction_df.loc[prediction_df['fold']==fold_, 'y_pred'] = pred_y
+        prediction_df.loc[prediction_df['fold']==fold_, 'series_id'] = dataset_test.select('series_id').to_numpy()
+        prediction_df.loc[prediction_df['fold']==fold_, 'step'] = dataset_test.select('step').to_numpy()
+    
+    assert (prediction_df[['y_true', 'y_pred']] == -1).mean().sum() == 0.
+    
+    prediction_df['y_true'] = prediction_df['y_true'].astype('uint8')
+    prediction_df['series_id'] = prediction_df['series_id'].astype('uint16')
+    prediction_df['step'] = prediction_df['step'].astype('uint32')
+
+    prediction_df.to_parquet(
+        os.path.join(save_path, 'oof_pred.parquet'), 
+        index=False
+    )
+    
+    
 def evaluate_lgb_score(
         config: dict, experiment_name: str,
         params_model: dict, feature_list: list,
@@ -330,6 +396,13 @@ def evaluate_lgb_score(
     ) as file:
         json.dump(best_result, file)
 
+    oof_lgb_prediction(
+        config=config, best_result=best_result, experiment_name=experiment_name, 
+        model_list=model_list, feature_list=feature_list
+    )
+    oof_post_process_score(
+        config=config, experiment_name=experiment_name
+    )
     explain_model(
         config=config, best_result=best_result, experiment_name=experiment_name, 
         model_list=model_list, feature_list=feature_list

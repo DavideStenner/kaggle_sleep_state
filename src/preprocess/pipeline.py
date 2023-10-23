@@ -186,6 +186,11 @@ def downcast_all(
 
     return train_series, train_events
 
+def sleep_interval_target(train_series: pl.LazyFrame, train_events: pl.LazyFrame) -> Tuple[pl.LazyFrame]:
+    train_events = correct_events(train_events=train_events)
+    train = add_target(train_series=train_series, train_events=train_events)
+    return train, train_events
+
 def correct_events(train_events: pl.LazyFrame) -> pl.LazyFrame:
     #get range of usable step from train events
     train_events = (
@@ -408,8 +413,7 @@ def train_pipeline(
         config=config, train_series=train_series, train_events=train_events,
     )
     
-    train_events = correct_events(train_events=train_events)
-    train = add_target(train_series=train_series, train_events=train_events)
+    train_series, train_events = sleep_interval_target(train_series=train_series, train_events=train_events)
         
     if dash_data:
         print('Saving csv for dashboard')

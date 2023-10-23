@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import polars as pl
 
-from typing import Tuple, List
+from typing import Tuple, List, Dict
 
 
 from src.utils import import_config_dict
@@ -186,6 +186,107 @@ def downcast_all(
 
     return train_series, train_events
 
+def gaussian_window_coefficient(window: int, std: float, normalize: bool=True) -> Dict[int, float]:
+    # guassian distribution function with 0 mean and std deviation
+    normalize_coef = (
+        np.exp(-float(0)**2/(2*std**2)) / (std * np.sqrt(2*np.pi)) if normalize
+        else 1
+    )
+    return {
+        x: (np.exp(-float(x)**2/(2*std**2)) / (std * np.sqrt(2*np.pi))) / normalize_coef
+        for x in range(-int(window/2), int(window/2)+1 )
+    }
+
+def add_gaussian_target(
+        train_series: pl.LazyFrame, train_events: pl.LazyFrame, 
+        gaussian_window: int=720, gaussian_coef: float=0.15
+    ) -> pl.LazyFrame:
+    
+    gaussian_dict = gaussian_window_coefficient(window=gaussian_window, std=gaussian_window*gaussian_coef)
+    
+    print('Creating gaussian target')
+    start_rows = train_series.select(pl.count()).collect().item()
+
+    train = train_series.join(
+        train_events,
+        on=['series_id', 'step'],
+        how='left'
+    ).with_columns(
+        pl.col('prev_step').fill_null(strategy='backward').fill_null(value=-1).alias('back_prev_step'),
+        pl.col('prev_step').fill_null(strategy='forward').fill_null(value=-1).alias('forw_prev_step'),
+        
+        pl.col('prev_event').fill_null(strategy='backward').fill_null(value=-1).alias('back_prev_event'),
+        pl.col('prev_event').fill_null(strategy='forward').fill_null(value=-1).alias('forw_prev_event'),
+    ).with_columns(
+        (
+            pl.when(
+                (pl.col('step')-pl.col('back_prev_step')).abs() < (pl.col('step')-pl.col('forw_prev_step')).abs()
+            ).then(pl.col('back_prev_step'))
+            .otherwise(pl.col('forw_prev_step'))
+         ).alias('nearest_step'),
+        (
+            pl.when(
+                (pl.col('step')-pl.col('back_prev_step')).abs() < (pl.col('step')-pl.col('forw_prev_step')).abs()
+            ).then(pl.col('back_prev_event'))
+            .otherwise(pl.col('forw_prev_event'))
+         ).alias('nearest_event')
+    ).with_columns(
+         (pl.col('step')-pl.col('nearest_step')).cast(pl.Int64).alias('nearest_distance')
+    ).with_columns(
+        #wakeup
+        (
+            (
+                pl.when(pl.col('nearest_event')==0).then(
+                    pl.col('nearest_distance').map_dict(gaussian_dict, return_dtype=pl.Float32)
+                ).otherwise(0.)
+            )
+            .fill_null(value=0).alias('gaussian_wakeup_event')
+        ),
+        #onset
+        (
+            (
+                pl.when(pl.col('nearest_event')==1).then(
+                    pl.col('nearest_distance').map_dict(gaussian_dict, return_dtype=pl.Float32)
+                ).otherwise(0.)
+            )
+            .fill_null(value=0).alias('gaussian_onset_event')
+        )        
+    )
+    #ensure no duplication
+    end_rows = train.select(pl.count()).collect().item()
+    assert start_rows == end_rows
+
+    train = train.drop(
+        [
+            'back_prev_step', 'forw_prev_step', 'nearest_step', 'prev_step',
+            'back_prev_event', 'forw_prev_event', 'nearest_event', 'prev_event'
+        ]
+    )
+    
+    return train
+
+def correct_gaussian_events(train_events: pl.LazyFrame) -> pl.LazyFrame:
+    #get range of usable step from train events
+    train_events = (
+        train_events.with_columns(
+            pl.col('step'),
+            pl.col('step').shift(-1).over('series_id').alias('second_step')
+        ).filter(pl.all_horizontal('step', 'second_step').is_not_null())
+        .with_columns(
+            pl.col('step').alias('prev_step'),
+            pl.col('event').alias('prev_event')
+        )
+        .select(
+            ['series_id', 'step', 'prev_step', 'prev_event']
+        )
+    )
+    return train_events
+
+def sleep_gaussian_target(train_series: pl.LazyFrame, train_events: pl.LazyFrame) -> Tuple[pl.LazyFrame]:
+    train_events = correct_gaussian_events(train_events=train_events)
+    train = add_gaussian_target(train_series=train_series, train_events=train_events)
+    return train, train_events
+
 def sleep_interval_target(train_series: pl.LazyFrame, train_events: pl.LazyFrame) -> Tuple[pl.LazyFrame]:
     train_events = correct_events(train_events=train_events)
     train = add_target(train_series=train_series, train_events=train_events)
@@ -208,7 +309,7 @@ def correct_events(train_events: pl.LazyFrame) -> pl.LazyFrame:
     return train_events
 
 def add_target(train_series: pl.LazyFrame, train_events: pl.LazyFrame) -> pl.LazyFrame:
-    print('Running join assert')
+    print('Creating interval target')
     start_rows = train_series.select(pl.count()).collect().item()
 
     #add first step, second step and do a asof_join to filter step>=first_step
@@ -285,7 +386,7 @@ def add_lift(train: pl.LazyFrame) -> pl.LazyFrame:
 
 def add_rolling_feature(
         train: pl.LazyFrame, 
-        period_list: List[int] = [5, 15, 30, 60], 
+        period_list: List[int] = [15, 30, 60, 180], 
         col_list: List[str]=['enmo', 'anglez']
     ) -> pl.LazyFrame:
     
@@ -308,19 +409,19 @@ def add_rolling_feature(
         )
         current_operation = [
             pl.col(col).rolling_mean(**rolling_param)
-                .over('series_id').alias(f'{col}_{period_step}_mean').add(1_000_000).cast(pl.Int32),
+                .over('series_id').alias(f'{col}_{period_step}_mean').mul(1_000_000).cast(pl.Int32),
             
             pl.col(col).rolling_std(**rolling_param)
-                .over('series_id').alias(f'{col}_{period_step}_std').add(1_000_000).cast(pl.Int32),
+                .over('series_id').alias(f'{col}_{period_step}_std').mul(1_000_000).cast(pl.Int32),
             
             pl.col(col).rolling_min(**rolling_param)
-                .over('series_id').alias(f'{col}_{period_step}_min').add(1_000_000).cast(pl.Int32),
+                .over('series_id').alias(f'{col}_{period_step}_min').mul(1_000_000).cast(pl.Int32),
             
             pl.col(col).rolling_max(**rolling_param)
-                .over('series_id').alias(f'{col}_{period_step}_max').add(1_000_000).cast(pl.Int32),
+                .over('series_id').alias(f'{col}_{period_step}_max').mul(1_000_000).cast(pl.Int32),
             
             pl.col(col).rolling_median(**rolling_param)
-                .over('series_id').alias(f'{col}_{period_step}_median').add(1_000_000).cast(pl.Int32),
+                .over('series_id').alias(f'{col}_{period_step}_median').mul(1_000_000).cast(pl.Int32),
         ]
         list_rolling_operation += current_operation
         num_rolling_operation += len(current_operation)
@@ -340,7 +441,7 @@ def add_rolling_feature(
         train = train.with_columns(
                 (pl.col(col)-pl.col(f'{col}_{period_step}_median')).abs()
                     .rolling_median(**rolling_param)
-                    .over('series_id').alias(f'{col}_{period_step}_mad').add(1_000_000).cast(pl.Int32),
+                    .over('series_id').alias(f'{col}_{period_step}_mad').mul(1_000_000).cast(pl.Int32),
         )
     print(f'Using {len(list_rolling_operation)} rolling feature')
 
@@ -352,7 +453,7 @@ def add_feature(train: pl.LazyFrame) -> pl.LazyFrame:
     
     train = add_lift(train)
     
-    # train = add_rolling_feature(train)
+    train = add_rolling_feature(train)
     
     return train
 
@@ -413,8 +514,9 @@ def train_pipeline(
         config=config, train_series=train_series, train_events=train_events,
     )
     
-    train_series, train_events = sleep_interval_target(train_series=train_series, train_events=train_events)
-        
+    train_series, _ = sleep_gaussian_target(train_series=train_series, train_events=train_events)
+    train, train_events = sleep_interval_target(train_series=train_series, train_events=train_events)
+    
     if dash_data:
         print('Saving csv for dashboard')
         train.collect().write_csv(

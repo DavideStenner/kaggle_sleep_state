@@ -11,3 +11,4 @@ seaborn
 shap
 IProgress
 ipywidgets
+xgboost==2.0.0

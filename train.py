@@ -2,11 +2,12 @@ if __name__ == '__main__':
     import argparse
 
     from src.utils import import_config_dict, import_params
-    from src.modeling.classification.lgb_model import run_lgb_experiment, evaluate_lgb_score, run_missing_lgb_experiment
+    
     
     parser = argparse.ArgumentParser()
     
-    parser.add_argument('--name', default='lgbm', type=str)
+    parser.add_argument('--model', default='lgb', type=str)
+    parser.add_argument('--name', default='main', type=str)
     parser.add_argument('--log', default=10, type=int)
     parser.add_argument('--skip_save', action='store_true')
     parser.add_argument('--dev', action='store_true')
@@ -14,12 +15,29 @@ if __name__ == '__main__':
     parser.add_argument('--missing', action='store_true')
     
     args = parser.parse_args()
-        
+
     config=import_config_dict()
-    config_model = import_params(model_name='params_lgb')
-    
+    config_model = import_params(model_name=f'params_{args.model}')
+
     params_model, metric_eval = config_model['params_model'], config_model['metric_eval']
-    params_model['metric'] = metric_eval
+
+    if args.model == 'lgb':
+        from src.modeling.classification.lgb_model import run_lgb_experiment as run_experiment
+        from src.modeling.classification.lgb_model import evaluate_lgb_score as evaluate_score
+        # from src.modeling.classification.lgb_model import run_missing_lgb_experiment as run_missing_experiment
+        params_model['metric'] = metric_eval
+        
+    elif args.model == 'xgb':
+        from src.modeling.classification.xgb_model import run_xgb_experiment as run_experiment
+        from src.modeling.classification.xgb_model import evaluate_xgb_score as evaluate_score
+        # from src.modeling.classification.xgb_model import run_missing_xgb_experiment as run_missing_experiment
+        params_model['eval_metric'] = metric_eval
+        
+    else:
+        raise NotImplementedError
+    
+    experiment_name = args.model + '_' + args.name
+    
     
     if args.dev:
         print('Starting to debug')
@@ -28,33 +46,33 @@ if __name__ == '__main__':
 
     if args.train:
         print('Starting training normal')
-        run_lgb_experiment(
-            experiment_name=args.name,config=config,
+        run_experiment(
+            experiment_name=experiment_name,config=config,
             params_model=params_model, feature_list=config['FEATURE_LIST'],
             log_evaluation=args.log, skip_save=args.skip_save,
             dev=args.dev
         )
         
-    evaluate_lgb_score(
-        config=config, experiment_name=args.name, 
+    evaluate_score(
+        config=config, experiment_name=experiment_name, 
         params_model=params_model, feature_list=config['FEATURE_LIST'],
-        add_comp_metric=True, metric_to_max = 'event_detection_ap'
+        add_comp_metric=True, metric_to_max = 'logloss'#'event_detection_ap'
     )
     
-    if args.missing:
-        missing_experiment_name = args.name + '_na'
-        print('Starting training missing')
+    # if args.missing:
+    #     missing_experiment_name = experiment_name + '_na'
+    #     print('Starting training missing')
         
-        if args.train:
+    #     if args.train:
 
-            run_missing_lgb_experiment(
-                experiment_name=missing_experiment_name,config=config,
-                params_model=params_model, feature_list=config['FEATURE_LIST'],
-                log_evaluation=args.log, dev=args.dev, skip_save=args.skip_save
-            )
+    #         run_missing_experiment(
+    #             experiment_name=missing_experiment_name,config=config,
+    #             params_model=params_model, feature_list=config['FEATURE_LIST'],
+    #             log_evaluation=args.log, dev=args.dev, skip_save=args.skip_save
+    #         )
         
-        evaluate_lgb_score(
-            config=config, experiment_name=missing_experiment_name, 
-            params_model=params_model, feature_list=config['FEATURE_LIST'],
-            add_comp_metric=False, metric_to_max = 'auc'
-        )
+    #     evaluate_score(
+    #         config=config, experiment_name=missing_experiment_name, 
+    #         params_model=params_model, feature_list=config['FEATURE_LIST'],
+    #         add_comp_metric=False, metric_to_max = 'auc'
+    #     )

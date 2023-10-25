@@ -6,30 +6,31 @@ import pickle
 import pandas as pd
 import polars as pl
 import seaborn as sns
-import lightgbm as lgb
+import xgboost as xgb
 import matplotlib.pyplot as plt
 
 from tqdm import tqdm
 from typing import Tuple
 from functools import partial
 
-from src.metric.custom_metric import competition_metric_lgb, MetricUtils
+from src.metric.custom_metric import competition_metric_xgb, MetricUtils
 from src.modeling.utils import scan_train_parquet
 from src.modeling.explanation.explanation import get_shap_insight
 from src.modeling.postprocess.postprocess import oof_post_process_score
 
-def run_lgb_experiment(
+def run_xgb_experiment(
         experiment_name: str,
         config: dict, params_model: dict,
         feature_list: list, log_evaluation: int, skip_save: bool,
         dev: bool
     ) -> None:
     
-    assert isinstance(config['TARGET_COL'], str)
-    
+    if isinstance(config['TARGET_COL'], list):
+        assert params_model['multi_strategy'] == 'multi_output_tree'
+        
     init_metric = MetricUtils()
     
-    metric_lgb = partial(competition_metric_lgb, init_metric)
+    metric_xgb = partial(competition_metric_xgb, init_metric)
     
     init_metric.update_tolerances(config['TOLERANCES'])
 
@@ -62,13 +63,6 @@ def run_lgb_experiment(
         
         progress = {}
 
-        callbacks_list = [
-            lgb.record_evaluation(progress),
-            lgb.log_evaluation(
-                period=log_evaluation, 
-                show_stdv=False
-            )
-        ]
         print('Collecting dataset')
         train_filtered = train.filter(
             pl.col('fold') != fold_
@@ -81,14 +75,14 @@ def run_lgb_experiment(
             pl.col('fold') == fold_
         )
         
-        train_matrix = lgb.Dataset(
+        train_matrix = xgb.DMatrix(
             train_filtered.select(feature_list).collect().to_numpy().astype('float32'),
-            train_filtered.select(config['TARGET_COL']).collect().to_numpy().reshape((-1)).astype('uint8')
+            train_filtered.select(config['TARGET_COL']).collect().to_numpy()
         )
         
-        test_matrix = lgb.Dataset(
+        test_matrix = xgb.DMatrix(
             test_filtered.select(feature_list).collect().to_numpy().astype('float32'),
-            test_filtered.select(config['TARGET_COL']).collect().to_numpy().reshape((-1)).astype('uint8')
+            test_filtered.select(config['TARGET_COL']).collect().to_numpy()
         )
 
         init_metric.update_df(
@@ -103,106 +97,24 @@ def run_lgb_experiment(
         )
 
         print('Start training')
-        model = lgb.train(
-            params=params_model,
-            train_set=train_matrix, 
-            num_boost_round=params_model['n_round'],
-            valid_sets=[test_matrix],
-            valid_names=['valid'],
-            callbacks=callbacks_list,
-            feval=metric_lgb,
+        params_train_xgb = params_model.copy()
+        num_boost_round = params_train_xgb.pop('num_boost_round')
+        
+        model = xgb.train(
+            params=params_train_xgb,
+            dtrain=train_matrix, 
+            num_boost_round=num_boost_round,
+            evals=[(test_matrix, 'valid')],
+            verbose_eval=log_evaluation,
+            evals_result=progress
+            # custom_metric=metric_xgb,
         )
 
         if ~skip_save:
             model.save_model(
                 os.path.join(
                     save_path,
-                    f'lgb_{fold_}.txt'
-                )
-            )
-
-        model_list.append(model)
-        progress_list.append(progress)
-
-        del train_matrix, test_matrix
-        
-        _ = gc.collect()
-        if ~skip_save:
-            save_model(
-                model_list=model_list, progress_list=progress_list,
-                save_path=save_path
-            )
-
-def run_missing_lgb_experiment(
-        experiment_name: str,
-        config: dict, params_model: dict,
-        feature_list: list, log_evaluation: int, dev: bool, skip_save: bool
-    ) -> None:
-
-    save_path = os.path.join(
-        config['SAVE_RESULTS_PATH'], 
-        experiment_name
-    )
-    
-    if not os.path.exists(save_path):
-        os.makedirs(save_path)
-
-    model_list = []
-    progress_list = []
-
-    for fold_ in range(config['N_FOLD']):
-        
-        train = scan_train_parquet(
-            path_file=os.path.join(
-                config['DATA_FOLDER'], config['PREPROCESS_FOLDER'], 
-                'train_missing.parquet'
-            ), dev=dev
-        ).with_columns(
-            pl.col('event').is_null().cast(pl.UInt8)
-        )
-        print(f'\n\nStarting fold {fold_}\n\n\n')
-        
-        progress = {}
-
-        callbacks_list = [
-            lgb.record_evaluation(progress),
-            lgb.log_evaluation(
-                period=log_evaluation, 
-                show_stdv=False
-            )
-        ]
-        print('Collecting dataset')
-        train_filtered = train.filter(
-            pl.col('fold') != fold_
-        )
-        test_filtered = train.filter(
-            pl.col('fold') == fold_
-        )
-        train_matrix = lgb.Dataset(
-            train_filtered.select(feature_list).collect().to_numpy().astype('float32'),
-            train_filtered.select(config['TARGET_COL']).collect().to_numpy().reshape((-1)).astype('uint8')
-        )
-        
-        test_matrix = lgb.Dataset(
-            test_filtered.select(feature_list).collect().to_numpy().astype('float32'),
-            test_filtered.select(config['TARGET_COL']).collect().to_numpy().reshape((-1)).astype('uint8')
-        )
-
-        print('Start training')
-        model = lgb.train(
-            params=params_model,
-            train_set=train_matrix, 
-            num_boost_round=params_model['n_round'],
-            valid_sets=[test_matrix],
-            valid_names=['valid'],
-            callbacks=callbacks_list,
-        )
-
-        if ~skip_save:
-            model.save_model(
-                os.path.join(
-                    save_path,
-                    f'lgb_{fold_}.txt'
+                    f'xgb_{fold_}.json'
                 )
             )
 
@@ -224,7 +136,7 @@ def save_model(
         with open(
             os.path.join(
                 save_path,
-                'model_list_lgb.pkl'
+                'model_list_xgb.pkl'
             ), 'wb'
         ) as file:
             pickle.dump(model_list, file)
@@ -232,15 +144,16 @@ def save_model(
         with open(
             os.path.join(
                 save_path,
-                'progress_list_lgb.pkl'
+                'progress_list_xgb.pkl'
             ), 'wb'
         ) as file:
             pickle.dump(progress_list, file)
 
-def oof_lgb_prediction(
+def oof_xgb_prediction(
         config: dict, best_result: dict, experiment_name: str, 
-        model_list: Tuple[lgb.Booster], feature_list: Tuple[str]
+        model_list: Tuple[xgb.Booster], feature_list: Tuple[str]
     ) -> None:
+    multi_output = isinstance(config['TARGET_COL'], list)
     
     print('Getting OOF predictions')
     
@@ -277,19 +190,27 @@ def oof_lgb_prediction(
         ).filter(
             pl.col('fold') == fold_
         ).select(
-            feature_list + [config['TARGET_COL'], 'series_id', 'step']
+            feature_list + ['event', 'series_id', 'step']
         ).collect()
     
         test_x = dataset_test.select(feature_list).to_numpy().astype('float32')
         
-        pred_y = model_.predict(test_x, num_iteration=best_result['best_epoch'])
+        pred_y = model_.predict(
+            xgb.DMatrix(test_x), 
+            iteration_range=(0, best_result['best_epoch'])
+        )
 
-        prediction_df.loc[prediction_df['fold']==fold_, 'y_true'] = dataset_test.select(config['TARGET_COL']).to_numpy()
-        prediction_df.loc[prediction_df['fold']==fold_, 'y_pred'] = pred_y
+        prediction_df.loc[prediction_df['fold']==fold_, 'y_true'] = dataset_test.select('event').to_numpy()
+        if multi_output:
+            for dim_pred in range(len(config['TARGET_COL'])):
+                prediction_df.loc[prediction_df['fold']==fold_, f'y_pred_{dim_pred}'] = pred_y[:, dim_pred]
+        else:
+            prediction_df.loc[prediction_df['fold']==fold_, 'y_pred'] = pred_y
+
         prediction_df.loc[prediction_df['fold']==fold_, 'series_id'] = dataset_test.select('series_id').to_numpy()
         prediction_df.loc[prediction_df['fold']==fold_, 'step'] = dataset_test.select('step').to_numpy()
     
-    assert (prediction_df[['y_true', 'y_pred']] == -1).mean().sum() == 0.
+    assert (prediction_df[['y_true']] == -1).mean().sum() == 0.
     
     prediction_df['y_true'] = prediction_df['y_true'].astype('uint8')
     prediction_df['series_id'] = prediction_df['series_id'].astype('uint16')
@@ -301,7 +222,7 @@ def oof_lgb_prediction(
     )
     
     
-def evaluate_lgb_score(
+def evaluate_xgb_score(
         config: dict, experiment_name: str,
         params_model: dict, feature_list: list,
         add_comp_metric: bool, metric_to_max: str
@@ -316,7 +237,7 @@ def evaluate_lgb_score(
     with open(
         os.path.join(
             save_path,
-            'progress_list_lgb.pkl'
+            'progress_list_xgb.pkl'
         ), 'rb'
     ) as file:
         progress_list = pickle.load(file)
@@ -324,19 +245,19 @@ def evaluate_lgb_score(
     with open(
         os.path.join(
             save_path,
-            'model_list_lgb.pkl'
+            'model_list_xgb.pkl'
         ), 'rb'
     ) as file:
         model_list = pickle.load(file)
 
         
     progress_dict = {
-        'time': range(params_model['n_round']),
+        'time': range(params_model['num_boost_round']),
     }
-    metric_to_eval = params_model['metric'].copy()
+    metric_to_eval = params_model['eval_metric'].copy()
 
-    if add_comp_metric:
-        metric_to_eval += ['event_detection_ap']
+    # if add_comp_metric:
+    #     metric_to_eval += ['event_detection_ap']
 
     for metric_ in metric_to_eval:
         progress_dict.update(
@@ -374,6 +295,7 @@ def evaluate_lgb_score(
         os.path.join(save_path, 'performance_plot.png')
     )
     plt.close(fig)
+
     best_epoch = int(progress_df[f"average_{metric_to_max}"].argmax())
     
     best_score = progress_df.loc[
@@ -394,12 +316,12 @@ def evaluate_lgb_score(
     with open(
         os.path.join(
             save_path,
-            'best_result_lgb.txt'
+            'best_result_xgb.txt'
         ), 'w'
     ) as file:
         json.dump(best_result, file)
 
-    oof_lgb_prediction(
+    oof_xgb_prediction(
         config=config, best_result=best_result, experiment_name=experiment_name, 
         model_list=model_list, feature_list=feature_list
     )
@@ -414,7 +336,7 @@ def evaluate_lgb_score(
 
 def explain_model(
         config: dict, best_result: dict, experiment_name: str,
-        model_list: Tuple[lgb.Booster], feature_list: list,
+        model_list: Tuple[xgb.Booster], feature_list: list,
     ) -> None:
     
     save_path = os.path.join(
@@ -426,8 +348,8 @@ def explain_model(
     feature_importances['feature'] = feature_list
 
     for fold_, model in enumerate(model_list):
-        feature_importances[f'fold_{fold_}'] = model.feature_importance(
-            importance_type='gain', iteration=best_result['best_epoch']
+        feature_importances[f'fold_{fold_}'] = model.get_score(
+            importance_type='total_gain', iteration_range =(0, best_result['best_epoch'])
         )
 
     feature_importances['average'] = feature_importances[
@@ -443,4 +365,4 @@ def explain_model(
     )
     plt.close(fig)
     
-    get_shap_insight(save_path=save_path, config=config, model='lgb')
+    get_shap_insight(save_path=save_path, config=config, model='xgb')

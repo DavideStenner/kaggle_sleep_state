@@ -8,13 +8,15 @@ import numpy as np
 import pandas as pd
 import polars as pl
 import lightgbm as lgb
+import xgboost as xgb
 import matplotlib.pyplot as plt
 
 from tqdm import tqdm
+from typing import Union
 from src.modeling.utils import scan_train_parquet
 
 def get_shap_insight(
-        save_path: str, config: dict, 
+        save_path: str, config: dict, model: str,
         fold_: int = 0, sample_series_id: int =3, 
         batch_size: int=1024, top_n: int=5
     ):
@@ -22,7 +24,7 @@ def get_shap_insight(
     with open(
             os.path.join(
                 save_path,
-                'model_list_lgb.pkl'
+                f'model_list_{model}.pkl'
             ), 'rb'
         ) as file:
             model_list = pickle.load(file)
@@ -30,7 +32,7 @@ def get_shap_insight(
     with open(
             os.path.join(
                 save_path,
-                'best_result_lgb.txt'
+                f'best_result_{model}.txt'
             ), 'r'
         ) as file:
             best_result = json.load(file)
@@ -110,9 +112,22 @@ def get_shap_insight(
 
 
 def shap_by_chunk(
-        model: lgb.Booster, test: pd.DataFrame, 
+        model: Union[lgb.Booster, xgb.Booster], test: pd.DataFrame, 
         batch_size: int, best_result: dict
     )-> np.array:
+    if isinstance(model, xgb.Booster):
+        dataset_wrapper = lambda x: xgb.DMatrix(x)
+        param_predict = {
+            'pred_contribs': True, 'iteration_range': (0, best_result['best_epoch'])
+        }
+    elif isinstance(model, lgb.Booster):
+        dataset_wrapper = lambda x: x
+        param_predict = {
+            'pred_contrib': True, 'num_iteration': best_result['best_epoch']
+        }
+
+    else:
+        raise ValueError
     
     shap_list = []
 
@@ -128,8 +143,9 @@ def shap_by_chunk(
         warnings.simplefilter("ignore")
 
         for i1, i2 in tqdm(zip(idxs[:-1], idxs[1:]), total=len(idxs)):
+            chunk_feature = dataset_wrapper(test.iloc[i1:i2, :])
 
-            shaps = model.predict(test.iloc[i1:i2, :], pred_contrib=True, num_iteration=best_result['best_epoch'])
+            shaps = model.predict(chunk_feature, **param_predict)
 
             shap_list.append(shaps)
         

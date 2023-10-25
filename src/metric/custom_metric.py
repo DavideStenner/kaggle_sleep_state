@@ -5,6 +5,7 @@ from typing import Tuple, Dict, List
 import numpy as np
 import lightgbm as lgb
 import polars as pl
+import xgboost as xgb
 
 from src.metric import official_metric
 from src.modeling.classification.interval_pred import detection_prediction
@@ -35,8 +36,7 @@ class MetricUtils():
 
 def competition_metric_lgb(
     init_metric: MetricUtils,
-    y_pred: np.array, eval_data: lgb.Dataset,
-    new_score: bool = False
+    y_pred: np.ndarray, eval_data: lgb.Dataset,
 ) -> Tuple[str, float, bool]:
     """
     Pearson correlation coefficient metric
@@ -49,24 +49,42 @@ def competition_metric_lgb(
 
     submission_ = detection_prediction(submission=submission_, y_pred=y_pred)
 
-    if new_score:
-        score_ = polars_new_score(
-            solution_=pl.LazyFrame(solution_),
-            submission_=pl.LazyFrame(submission_),
-            tolerances_=tolerances_
-        )
-    else:
-        score_ = official_metric.score(
-            solution=solution_,
-            submission=submission_,
-            tolerances=tolerances_,
-            series_id_column_name='series_id',
-            time_column_name='step',
-            event_column_name='event',
-            score_column_name='score',
-        )
+    score_ = official_metric.score(
+        solution=solution_,
+        submission=submission_,
+        tolerances=tolerances_,
+        series_id_column_name='series_id',
+        time_column_name='step',
+        event_column_name='event',
+        score_column_name='score',
+    )
     
     return 'event_detection_ap', score_, True
+
+def competition_metric_xgb(
+    init_metric: MetricUtils,
+    y_pred: np.ndarray, eval_data: xgb.DMatrix,
+) -> Tuple[str, float]:
+    """
+    Pearson correlation coefficient metric
+    """
+    solution_ = init_metric.return_events()
+    submission_ = init_metric.return_df()
+    tolerances_ = init_metric.return_tolerances()
+
+    submission_ = detection_prediction(submission=submission_, y_pred=y_pred)
+
+    score_ = official_metric.score(
+        solution=solution_,
+        submission=submission_,
+        tolerances=tolerances_,
+        series_id_column_name='series_id',
+        time_column_name='step',
+        event_column_name='event',
+        score_column_name='score',
+    )
+    
+    return 'event_detection_ap', score_
 
 def pl_average_precision(group: pl.DataFrame, class_counts_: dict) -> pl.DataFrame:
     match_ = group['matched'].to_numpy()

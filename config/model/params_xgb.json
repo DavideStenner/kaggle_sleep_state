@@ -1,0 +1,15 @@
+{
+    "params_model": {
+        "tree_method": "hist",
+        "objective": "reg:logistic",
+        "max_depth": 8,
+        "reg_lambda": 1,
+        "learning_rate":0.1,
+        "subsample":0.75,
+        "colsample_bytree":0.8,
+        "nthread" : -1,
+        "num_boost_round": 10,
+        "multi_strategy": "multi_output_tree"
+    },
+    "metric_eval": ["logloss"]
+}

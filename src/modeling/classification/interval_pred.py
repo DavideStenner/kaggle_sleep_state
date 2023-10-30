@@ -9,8 +9,13 @@ def detection_prediction(
         col_select: List[str] = ['series_id','step','event','score']
     ) -> pd.DataFrame:
     
-    submission['probability'] = y_pred
-    submission['prediction'] = (y_pred > 0.5).astype(int)
+    if y_pred.shape[1] > 1:
+        submission['probability'] = np.max(y_pred, axis=1)
+        submission['prediction'] = np.argmax(y_pred, axis=1).astype(int)
+    
+    else:
+        submission['probability'] = y_pred
+        submission['prediction'] = (y_pred > 0.5).astype(int)
     
     submission['score'] = (
         submission.groupby('series_id')['probability']

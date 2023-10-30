@@ -8,14 +8,22 @@ import polars as pl
 import xgboost as xgb
 
 from src.metric import official_metric
-from src.modeling.classification.interval_pred import detection_prediction
-
+from src.modeling.classification.interval_pred import detection_prediction, detection_multi_prediction
+import warnings
+warnings.filterwarnings(action='error')
 class MetricUtils():
     def __init__(self) -> None:
         self.df_ = None
         self.tolerances_ = None
         self.events_ = None
-        
+        self.iteration: int = 0
+    
+    def reset_iteration(self):
+        self.iteration = 0
+    
+    def update_iteration(self):
+        self.iteration += 1
+    
     def update_df(self, df_):
         self.df_=df_
         
@@ -33,6 +41,10 @@ class MetricUtils():
         
     def return_tolerances(self):
         return self.tolerances_
+    
+    def return_iteration(self):
+        return self.iteration
+        
 
 def competition_metric_lgb(
     init_metric: MetricUtils,
@@ -41,7 +53,10 @@ def competition_metric_lgb(
     """
     Pearson correlation coefficient metric
     """
-    # y_true = eval_data.get_label()
+    init_metric.update_iteration()
+
+    if init_metric.return_iteration() % 9 != 0:
+        return 'event_detection_ap', -1, True
 
     solution_ = init_metric.return_events()
     submission_ = init_metric.return_df()
@@ -68,11 +83,17 @@ def competition_metric_xgb(
     """
     Pearson correlation coefficient metric
     """
+    init_metric.update_iteration()
+
+    if init_metric.return_iteration() % 9 != 0:
+        return 'event_detection_ap', -1
+    
+
     solution_ = init_metric.return_events()
     submission_ = init_metric.return_df()
     tolerances_ = init_metric.return_tolerances()
 
-    submission_ = detection_prediction(submission=submission_, y_pred=y_pred)
+    submission_ = detection_multi_prediction(submission=submission_, y_pred=y_pred)
 
     score_ = official_metric.score(
         solution=solution_,

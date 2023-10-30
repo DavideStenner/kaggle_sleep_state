@@ -204,7 +204,7 @@ def add_gaussian_target(
     
     gaussian_dict = gaussian_window_coefficient(window=gaussian_window, std=gaussian_window*gaussian_coef)
     
-    print('Creating gaussian target')
+    print('Creating gaussian and multi target')
     start_rows = train_series.select(pl.count()).collect().item()
 
     train = train_series.join(
@@ -234,6 +234,20 @@ def add_gaussian_target(
          (pl.col('step')-pl.col('nearest_step')).cast(pl.Int64).alias('nearest_distance')
     ).with_columns(
         #wakeup
+        (
+            (
+                pl.when(
+                    (pl.col('nearest_event')==0) &
+                    (pl.col('nearest_distance')<=gaussian_window)
+                ).then(0)
+                .when(
+                    (pl.col('nearest_event')==1) &
+                    (pl.col('nearest_distance')<=gaussian_window)
+                ).then(1).otherwise(2)
+            )
+            .fill_null(value=2).cast(pl.UInt8).alias('event_window')
+        ),
+        #gaussian wakeup
         (
             (
                 pl.when(pl.col('nearest_event')==0).then(

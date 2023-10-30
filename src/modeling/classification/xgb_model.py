@@ -47,6 +47,8 @@ def run_xgb_experiment(
 
     for fold_ in range(config['N_FOLD']):
         
+        init_metric.reset_iteration()
+
         train = scan_train_parquet(
             path_file=os.path.join(
                 config['DATA_FOLDER'], config['PREPROCESS_FOLDER'], 
@@ -106,8 +108,8 @@ def run_xgb_experiment(
             num_boost_round=num_boost_round,
             evals=[(test_matrix, 'valid')],
             verbose_eval=log_evaluation,
-            evals_result=progress
-            # custom_metric=metric_xgb,
+            evals_result=progress,
+            custom_metric=metric_xgb,
         )
 
         if ~skip_save:
@@ -256,8 +258,8 @@ def evaluate_xgb_score(
     }
     metric_to_eval = params_model['eval_metric'].copy()
 
-    # if add_comp_metric:
-    #     metric_to_eval += ['event_detection_ap']
+    if add_comp_metric:
+        metric_to_eval += ['event_detection_ap']
 
     for metric_ in metric_to_eval:
         progress_dict.update(
@@ -328,11 +330,14 @@ def evaluate_xgb_score(
     oof_post_process_score(
         config=config, experiment_name=experiment_name
     )
-    explain_model(
-        config=config, best_result=best_result, experiment_name=experiment_name, 
-        model_list=model_list, feature_list=feature_list
-    )
-
+    
+    if isinstance(config['TARGET_COL'], str):
+        explain_model(
+            config=config, best_result=best_result, experiment_name=experiment_name, 
+            model_list=model_list, feature_list=feature_list
+        )
+    else:
+        print('Explainability not supported for multi target')
 
 def explain_model(
         config: dict, best_result: dict, experiment_name: str,
@@ -349,7 +354,7 @@ def explain_model(
 
     for fold_, model in enumerate(model_list):
         feature_importances[f'fold_{fold_}'] = model.get_score(
-            importance_type='total_gain', iteration_range =(0, best_result['best_epoch'])
+            importance_type='total_gain'#, iteration_range =(0, best_result['best_epoch'])
         )
 
     feature_importances['average'] = feature_importances[

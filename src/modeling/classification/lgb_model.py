@@ -46,6 +46,8 @@ def run_lgb_experiment(
 
     for fold_ in range(config['N_FOLD']):
         
+        init_metric.reset_iteration()
+
         train = scan_train_parquet(
             path_file=os.path.join(
                 config['DATA_FOLDER'], config['PREPROCESS_FOLDER'], 

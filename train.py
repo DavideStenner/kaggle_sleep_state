@@ -14,7 +14,8 @@ if __name__ == '__main__':
     parser.add_argument('--skip_save', action='store_true')
     parser.add_argument('--dev', action='store_true')
     parser.add_argument('--train', action='store_true')
-    
+    parser.add_argument('--shap', action='store_true')
+
     args = parser.parse_args()
 
     config=import_config_dict()
@@ -57,5 +58,5 @@ if __name__ == '__main__':
     evaluate_score(
         config=config, experiment_name=experiment_name, 
         params_model=params_model, feature_list=config['FEATURE_LIST'],
-        add_comp_metric=True, metric_to_max = 'event_detection_ap'
+        add_comp_metric=True, metric_to_max = 'event_detection_ap', calc_shap=args.shap
     )

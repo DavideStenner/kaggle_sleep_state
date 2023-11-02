@@ -221,7 +221,8 @@ def oof_lgb_prediction(
 def evaluate_lgb_score(
         config: dict, experiment_name: str,
         params_model: dict, feature_list: list,
-        add_comp_metric: bool, metric_to_max: str
+        add_comp_metric: bool, metric_to_max: str,
+        calc_shap: bool
     ) -> None:
 
     save_path = os.path.join(
@@ -327,8 +328,9 @@ def evaluate_lgb_score(
         config=config, best_result=best_result, experiment_name=experiment_name, 
         model_list=model_list, feature_list=feature_list
     )
-
-
+    if calc_shap:
+        get_shap_insight(save_path=save_path, config=config, model='lgb')
+    
 def explain_model(
         config: dict, best_result: dict, experiment_name: str,
         model_list: Tuple[lgb.Booster], feature_list: list,
@@ -359,5 +361,3 @@ def explain_model(
         os.path.join(save_path, 'importance_plot.png')
     )
     plt.close(fig)
-    
-    get_shap_insight(save_path=save_path, config=config, model='lgb')

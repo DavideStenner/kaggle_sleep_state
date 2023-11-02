@@ -410,8 +410,8 @@ def add_rolling_feature(
     list_rolling_operation = []
     num_rolling_operation = 0
     
-    col_period_product = itertools.product(col_list, period_list)
-    
+    col_period_product = list(itertools.product(col_list, period_list))
+
     for col, period in col_period_product:
         period_step = period * 12
         
@@ -423,19 +423,19 @@ def add_rolling_feature(
         )
         current_operation = [
             pl.col(col).rolling_mean(**rolling_param)
-                .over('series_id').alias(f'{col}_{period_step}_mean').mul(1_000_000).cast(pl.Int32),
+                .over('series_id').alias(f'{col}_{period_step}_mean').cast(pl.Float32),
             
             pl.col(col).rolling_std(**rolling_param)
-                .over('series_id').alias(f'{col}_{period_step}_std').mul(1_000_000).cast(pl.Int32),
+                .over('series_id').alias(f'{col}_{period_step}_std').cast(pl.Float32),
             
             pl.col(col).rolling_min(**rolling_param)
-                .over('series_id').alias(f'{col}_{period_step}_min').mul(1_000_000).cast(pl.Int32),
+                .over('series_id').alias(f'{col}_{period_step}_min').cast(pl.Float32),
             
             pl.col(col).rolling_max(**rolling_param)
-                .over('series_id').alias(f'{col}_{period_step}_max').mul(1_000_000).cast(pl.Int32),
+                .over('series_id').alias(f'{col}_{period_step}_max').cast(pl.Float32),
             
             pl.col(col).rolling_median(**rolling_param)
-                .over('series_id').alias(f'{col}_{period_step}_median').mul(1_000_000).cast(pl.Int32),
+                .over('series_id').alias(f'{col}_{period_step}_median').cast(pl.Float32),
         ]
         list_rolling_operation += current_operation
         num_rolling_operation += len(current_operation)
@@ -444,7 +444,9 @@ def add_rolling_feature(
     
     #adding mad feature
     for col, period in col_period_product:
-        num_rolling_operation += 1
+        period_step = period * 12
+        
+        num_rolling_operation += 2
         rolling_param.update(
             {
                 'window_size': f'{period_step}i', 
@@ -455,9 +457,13 @@ def add_rolling_feature(
         train = train.with_columns(
                 (pl.col(col)-pl.col(f'{col}_{period_step}_median')).abs()
                     .rolling_median(**rolling_param)
-                    .over('series_id').alias(f'{col}_{period_step}_mad').mul(1_000_000).cast(pl.Int32),
+                    .over('series_id').alias(f'{col}_{period_step}_mad').cast(pl.Float32),
         )
-    print(f'Using {len(list_rolling_operation)} rolling feature')
+        train = train.with_columns(
+                (pl.col(f'{col}_{period_step}_max')-pl.col(f'{col}_{period_step}_min'))
+                .alias(f'{col}_amplit_{period_step}').cast(pl.Float32)
+        )
+    print(f'Using {num_rolling_operation} rolling feature')
 
     return train
     

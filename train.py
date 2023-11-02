@@ -1,8 +1,10 @@
 if __name__ == '__main__':
     import argparse
+    import warnings
 
     from src.utils import import_config_dict, import_params
-    
+    warnings.filterwarnings(action='error')
+
     
     parser = argparse.ArgumentParser()
     
@@ -24,13 +26,13 @@ if __name__ == '__main__':
     if args.model == 'lgb':
         from src.modeling.classification.lgb_model import run_lgb_experiment as run_experiment
         from src.modeling.classification.lgb_model import evaluate_lgb_score as evaluate_score
-        # from src.modeling.classification.lgb_model import run_missing_lgb_experiment as run_missing_experiment
+
         params_model['metric'] = metric_eval
         
     elif args.model == 'xgb':
         from src.modeling.classification.xgb_model import run_xgb_experiment as run_experiment
         from src.modeling.classification.xgb_model import evaluate_xgb_score as evaluate_score
-        # from src.modeling.classification.xgb_model import run_missing_xgb_experiment as run_missing_experiment
+
         params_model['eval_metric'] = metric_eval
         
     else:
@@ -56,23 +58,5 @@ if __name__ == '__main__':
     evaluate_score(
         config=config, experiment_name=experiment_name, 
         params_model=params_model, feature_list=config['FEATURE_LIST'],
-        add_comp_metric=True, metric_to_max = 'logloss'#'event_detection_ap'
+        add_comp_metric=True, metric_to_max = 'event_detection_ap'
     )
-    
-    # if args.missing:
-    #     missing_experiment_name = experiment_name + '_na'
-    #     print('Starting training missing')
-        
-    #     if args.train:
-
-    #         run_missing_experiment(
-    #             experiment_name=missing_experiment_name,config=config,
-    #             params_model=params_model, feature_list=config['FEATURE_LIST'],
-    #             log_evaluation=args.log, dev=args.dev, skip_save=args.skip_save
-    #         )
-        
-    #     evaluate_score(
-    #         config=config, experiment_name=missing_experiment_name, 
-    #         params_model=params_model, feature_list=config['FEATURE_LIST'],
-    #         add_comp_metric=False, metric_to_max = 'auc'
-    #     )

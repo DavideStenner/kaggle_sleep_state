@@ -14,7 +14,6 @@ if __name__ == '__main__':
     parser.add_argument('--skip_save', action='store_true')
     parser.add_argument('--dev', action='store_true')
     parser.add_argument('--train', action='store_true')
-    parser.add_argument('--missing', action='store_true')
     
     args = parser.parse_args()
 

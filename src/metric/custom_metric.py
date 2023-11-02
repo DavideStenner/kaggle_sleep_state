@@ -8,9 +8,9 @@ import polars as pl
 import xgboost as xgb
 
 from src.metric import official_metric
-from src.modeling.classification.interval_pred import detection_prediction, detection_multi_prediction
-import warnings
-warnings.filterwarnings(action='error')
+from src.modeling.classification.interval_pred import (
+    detection_prediction, detection_multi_prediction, detection_event_only_prediction
+)
 class MetricUtils():
     def __init__(self) -> None:
         self.df_ = None

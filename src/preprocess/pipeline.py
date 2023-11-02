@@ -141,7 +141,17 @@ def downcast_series(
     
     return train_series, train_events
 
-def filter_train(
+def filter_series(
+        train_series: pl.LazyFrame,
+        train_events: pl.LazyFrame  
+    ) -> Tuple[pl.LazyFrame]:
+    
+    train_series = train_series.filter(~pl.col('series_id').is_in(['31011ade7c0a', 'a596ad0b82aa']))
+    train_events = train_events.filter(~pl.col('series_id').is_in(['31011ade7c0a', 'a596ad0b82aa']))
+
+    return train_series, train_events
+
+def filter_target(
         train: pl.LazyFrame
     ) -> pl.LazyFrame:
     #filter missing values on event
@@ -521,7 +531,7 @@ def add_cv_folder(train: pl.LazyFrame, train_events: pl.LazyFrame) -> Tuple[pl.L
 
 def train_pipeline(
         file_name: str, 
-        filter_data: bool=True, dev: bool=False, 
+        dev: bool=False, 
         dash_data: bool=False, save_event: bool=False
     ) -> None:
     
@@ -529,6 +539,7 @@ def train_pipeline(
     config=import_config_dict()
     
     train_series, train_events = import_dataset(config=config, dev=dev)
+    train_series, train_events = filter_series(train_series=train_series, train_events=train_events)
     
     train_series, train_events = downcast_all(
         config=config, train_series=train_series, train_events=train_events,
@@ -550,8 +561,7 @@ def train_pipeline(
     
     train = add_feature(train)
     
-    if filter_data:
-        train = filter_train(train)
+    train = filter_target(train)
     
     train, train_events = add_cv_folder(train=train, train_events=train_events)
     

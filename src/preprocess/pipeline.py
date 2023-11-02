@@ -273,7 +273,7 @@ def add_gaussian_target(
     train = train.drop(
         [
             'back_prev_step', 'forw_prev_step', 'nearest_step', 'prev_step',
-            'back_prev_event', 'forw_prev_event', 'nearest_event', 'prev_event'
+            'back_prev_event', 'forw_prev_event', 'nearest_event', 'nearest_distance', 'prev_event'
         ]
     )
     

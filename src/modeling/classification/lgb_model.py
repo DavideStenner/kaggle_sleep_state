@@ -253,8 +253,8 @@ def evaluate_lgb_score(
     }
     metric_to_eval = params_model['metric'].copy()
 
-    if add_comp_metric:
-        metric_to_eval += ['event_detection_ap']
+    if (add_comp_metric) & ('event_detection_ap' not in metric_to_eval):
+        metric_to_eval.append('event_detection_ap')
 
     for metric_ in metric_to_eval:
         progress_dict.update(

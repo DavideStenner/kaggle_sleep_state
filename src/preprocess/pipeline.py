@@ -391,33 +391,46 @@ def add_target(train_series: pl.LazyFrame, train_events: pl.LazyFrame) -> pl.Laz
     
     return train
 
-def add_shift(train: pl.LazyFrame) -> pl.LazyFrame:
-    train = train.with_columns(
-        (pl.col('anglez') - pl.col('anglez').shift(1).over('series_id')).alias('diff_anglez').cast(pl.Float32),
-        (pl.col('enmo') - pl.col('enmo').shift(1).over('series_id')).alias('diff_enmo').cast(pl.Float32)
-    )
+def add_shift(
+        train: pl.LazyFrame, 
+        period_rolling_list: List[int], col_list: List[str]
+    ) -> pl.LazyFrame:
+    
+    col_period_product = list(itertools.product(col_list, period_rolling_list))
+    operation_list = []
+    
+    for col, period in col_period_product:
+        period_step = period * 12
+        operation_list += [
+            (
+                (pl.col(f'{col}_{period_step}_{operation}').shift(-period_step//2)) -
+                (pl.col(f'{col}_{period_step}_{operation}').shift(period_step//2))
+            ).over('series_id').cast(pl.Float32).alias(f'diff_{col}_{period_step}_{operation}_prev_next')
+            for operation in ['min', 'max', 'mean', 'mad', 'amplit']
+        ]
+
+    print(f'{len(operation_list)} running prev-next difference')
+    train = train.with_columns(operation_list)
     
     return train
 
-def lift(train: pl.LazyFrame, center: bool, suffix: str) -> pl.LazyFrame:
-    #TODO
-    #ADD ROLLING AGG BOTTOM TO CALCULATE RIGHT ROLLING
-        
+def lift(train: pl.LazyFrame, center: bool, suffix: str, period_selected: int) -> pl.LazyFrame:
+    
     train = train.with_columns(
         pl.col('step').cast(pl.Int32),
         (
             pl.max_horizontal(
                 pl.col('enmo') -0.2, pl.lit(0)
             ).rolling_sum(
-                window_size='120i', center=center,
-                closed='left', min_periods=120
-            ).over('series_id').alias('activity_count' + suffix).cast(pl.Float32)
+                window_size=f'{period_selected}i', center=center,
+                closed='left', min_periods=period_selected
+            ).over('series_id').alias(f'activity_count_{period_selected}' + suffix).cast(pl.Float32)
         )
     ).with_columns(
-        (100/(1+pl.col('activity_count' + suffix))).rolling_mean(
-            window_size='360i', center=center,
-            closed='left', min_periods=360
-        ).over('series_id').alias('lids' + suffix).cast(pl.Float32)
+        (100/(1+pl.col(f'activity_count_{period_selected}' + suffix))).rolling_mean(
+            window_size=f'{period_selected*3}i', center=center,
+            closed='left', min_periods=period_selected*3
+        ).over('series_id').alias(f'lids_{period_selected}' + suffix).cast(pl.Float32)
     )
         
     return train
@@ -425,15 +438,23 @@ def lift(train: pl.LazyFrame, center: bool, suffix: str) -> pl.LazyFrame:
 def add_lift(train: pl.LazyFrame) -> pl.LazyFrame:
     # https://www.nature.com/articles/s41598-020-79217-x.pdf
 
-    train = lift(train, center=False, suffix='_left')
-    train = lift(train, center=True, suffix='_center')
+    for minute in [10, 30, 60]:
+        period_selected = 12 * minute
         
+        train = lift(train, center=False, suffix='_left', period_selected=period_selected)
+        train = lift(train, center=True, suffix='_center', period_selected=period_selected)
+
+        train = train.with_columns(
+            pl.col(f'activity_count_{period_selected}_left').shift(-period_selected).over('series_id').alias(f'activity_count_{period_selected}_right'),
+            pl.col(f'lids_{period_selected}_left').shift(-period_selected*3).over('series_id').alias(f'lids{period_selected}_right')        
+        )
+
     return train
 
 def add_rolling_feature(
         train: pl.LazyFrame, 
-        period_list: List[int] = [15, 30, 60, 180], 
-        col_list: List[str]=['enmo', 'anglez']
+        period_rolling_list: List[int], 
+        col_list: List[str]
     ) -> pl.LazyFrame:
     
     rolling_param = {
@@ -442,7 +463,7 @@ def add_rolling_feature(
     list_rolling_operation = []
     num_rolling_operation = 0
     
-    col_period_product = list(itertools.product(col_list, period_list))
+    col_period_product = list(itertools.product(col_list, period_rolling_list))
 
     for col, period in col_period_product:
         period_step = period * 12
@@ -493,19 +514,24 @@ def add_rolling_feature(
         )
         train = train.with_columns(
                 (pl.col(f'{col}_{period_step}_max')-pl.col(f'{col}_{period_step}_min'))
-                .alias(f'{col}_amplit_{period_step}').cast(pl.Float32)
+                .alias(f'{col}_{period_step}_amplit').cast(pl.Float32)
         )
     print(f'Using {num_rolling_operation} rolling feature')
 
     return train
     
     
-def add_feature(train: pl.LazyFrame) -> pl.LazyFrame:
-    train = add_shift(train)
+def add_feature(
+        train: pl.LazyFrame, 
+        col_list: List[str]=['enmo', 'anglez'],
+        period_rolling_list: List[int] = [5, 15, 30, 60, 180]
+    ) -> pl.LazyFrame:
     
     train = add_lift(train)
     
-    train = add_rolling_feature(train)
+    train = add_rolling_feature(train, period_rolling_list=period_rolling_list, col_list=col_list)
+
+    train = add_shift(train, period_rolling_list=period_rolling_list, col_list=col_list)
     
     return train
 

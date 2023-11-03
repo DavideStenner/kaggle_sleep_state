@@ -143,11 +143,33 @@ def downcast_series(
 
 def filter_series(
         train_series: pl.LazyFrame,
-        train_events: pl.LazyFrame  
+        train_events: pl.LazyFrame,
+        truncated_series: list = ['31011ade7c0a', 'a596ad0b82aa']
     ) -> Tuple[pl.LazyFrame]:
     
-    train_series = train_series.filter(~pl.col('series_id').is_in(['31011ade7c0a', 'a596ad0b82aa']))
-    train_events = train_events.filter(~pl.col('series_id').is_in(['31011ade7c0a', 'a596ad0b82aa']))
+    starting_rows = train_series.select(pl.count()).collect().item()
+
+    series_nan_list = (
+        train_events.select(['series_id', 'step'])
+        .with_columns(
+            (pl.col('step').is_null().any()).over('series_id').alias('has_nan')
+        )
+        .filter(
+            ~pl.col('has_nan')
+        ).select('series_id').unique().collect()
+        .to_numpy().reshape((-1)).tolist()
+    )
+    series_nan_list = list(
+        set(series_nan_list).difference(set(truncated_series))
+    )
+
+    train_series = train_series.filter(pl.col('series_id').is_in(series_nan_list))
+    train_events = train_events.filter(pl.col('series_id').is_in(series_nan_list))
+
+    ending_series_id = train_events.select(pl.struct(['series_id']).unique().count()).collect().item()
+    ending_rows = train_series.select(pl.count()).collect().item()
+
+    print(f'Reduced series to {ending_series_id} equal to {starting_rows-ending_rows} rows less for a total of {ending_rows}')
 
     return train_series, train_events
 

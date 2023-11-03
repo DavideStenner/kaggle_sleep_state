@@ -270,15 +270,16 @@ def evaluate_lgb_score(
     for metric_ in metric_to_eval:
         metric_line_plot.append(f"average_{metric_}")
         
+        col_metric = [col for col in progress_df.columns if metric_ in col]
         progress_df[f"average_{metric_}"] = progress_df.loc[
-            :, [metric_ in x for x in progress_df.columns]
+            :, col_metric
         ].mean(axis =1)
-        
+
         progress_df[f"std_{metric_}"] = progress_df.loc[
-            :, [metric_ in x for x in progress_df.columns]
+            :, col_metric
         ].std(axis =1)
-        
-    progress_df[['time'] + metric_line_plot].to_csv(
+    
+    progress_df.to_csv(
         os.path.join(save_path, 'metric_df.csv'), index=False
     )
 

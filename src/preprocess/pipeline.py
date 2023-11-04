@@ -244,11 +244,11 @@ def add_gaussian_target(
         on=['series_id', 'step'],
         how='left'
     ).with_columns(
-        pl.col('prev_step').fill_null(strategy='backward').fill_null(value=-1).alias('back_prev_step'),
-        pl.col('prev_step').fill_null(strategy='forward').fill_null(value=-1).alias('forw_prev_step'),
+        pl.col('prev_step').fill_null(strategy='backward').fill_null(value=-1_000_000).alias('back_prev_step'),
+        pl.col('prev_step').fill_null(strategy='forward').fill_null(value=-1_000_000).alias('forw_prev_step'),
         
-        pl.col('prev_event').fill_null(strategy='backward').fill_null(value=-1).alias('back_prev_event'),
-        pl.col('prev_event').fill_null(strategy='forward').fill_null(value=-1).alias('forw_prev_event'),
+        pl.col('prev_event').fill_null(strategy='backward').fill_null(value=-1_000_000).alias('back_prev_event'),
+        pl.col('prev_event').fill_null(strategy='forward').fill_null(value=-1_000_000).alias('forw_prev_event'),
     ).with_columns(
         (
             pl.when(
@@ -270,11 +270,11 @@ def add_gaussian_target(
             (
                 pl.when(
                     (pl.col('nearest_event')==0) &
-                    (pl.col('nearest_distance')<=gaussian_window)
+                    (pl.col('nearest_distance').abs()<=(gaussian_window//2))
                 ).then(0)
                 .when(
                     (pl.col('nearest_event')==1) &
-                    (pl.col('nearest_distance')<=gaussian_window)
+                    (pl.col('nearest_distance').abs()<=(gaussian_window//2))
                 ).then(1).otherwise(2)
             )
             .fill_null(value=2).cast(pl.UInt8).alias('event_window')

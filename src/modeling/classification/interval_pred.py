@@ -7,39 +7,37 @@ pd.options.mode.chained_assignment = None  # default='warn'
 
 def detection_event_only_prediction(
         submission: pd.DataFrame, y_pred: np.array,
-        prediction_rolling: int=720, score_rolling: int=12*60*5,
+        prediction_rolling: int=360, score_rolling: int=360,
         col_select: List[str] = ['series_id','step','event','score']
     ) -> pd.DataFrame:
-    
-    submission['prediction'] = np.argmax(y_pred, axis=1).astype(int)
-    submission['probability'] = np.max(y_pred, axis=1)
 
-    submission['prediction'] = (
-        submission.groupby('series_id')['prediction']
+    submission['event'] = np.argmax(y_pred, axis=1).astype(int)
+    submission.loc[submission['event']==2, 'event'] = np.nan
+    
+    submission['event'] = (
+        submission.groupby('series_id')['event']
         .transform(lambda group: group.rolling(prediction_rolling+1, center=True).median())
     )
+    mask_event = submission['event'].notna()
+    
+    pred_ = pd.DataFrame(y_pred)
+    pred_['series_id'] = submission['series_id']
 
-    #take out non wake-onset event
-    submission = submission[submission['prediction']!=2]
-    
-    submission['score'] = (
-        submission.groupby('series_id')['probability']
-        .transform(
-            lambda group: 
-                group.rolling(score_rolling+1, center=True, min_periods=10)
-                .mean().bfill().ffill()
-        )
-    )
-    
+    pred_ = pred_.groupby('series_id')[[0, 1, 2]].transform(
+        lambda group: 
+            group.rolling(score_rolling+1, center=True, min_periods=10)
+            .mean().bfill().ffill()
+    ).values
+    submission = submission.loc[mask_event].reset_index(drop=True)
+    y_pred = (1-y_pred[mask_event, 0])
 
-    submission['pred_diff'] = submission['prediction'].diff()
-    submission['event'] = submission['pred_diff'].replace({1: 1, -1: 0, 0: np.nan})
-    
+    submission['score'] = y_pred
+
     sub_onset = submission[submission['event']==1].groupby(['series_id', 'year', 'month', 'day']).agg('first').reset_index()
     sub_wakeup = submission[submission['event']==0].groupby(['series_id', 'year', 'month', 'day']).agg('last').reset_index()
 
     result = pd.concat([sub_wakeup, sub_onset], ignore_index=True)[col_select].sort_values(['series_id', 'step'])
-    
+
     return result
 
 def detection_prediction(

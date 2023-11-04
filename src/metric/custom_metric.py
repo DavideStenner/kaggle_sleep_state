@@ -55,8 +55,8 @@ def competition_metric_lgb(
     """
     init_metric.update_iteration()
 
-    if init_metric.return_iteration() % 9 != 0:
-        return 'event_detection_ap', -1, True
+    # if init_metric.return_iteration() % 9 != 0:
+    #     return 'event_detection_ap', -1, True
 
     solution_ = init_metric.return_events()
     submission_ = init_metric.return_df()
